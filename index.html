@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Petal-PH | Fresh Flowers, Fresh Feelings</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <nav class="navbar">
+      <a class="brand" href="index.html">Petal-PH</a>
+      <button class="nav-toggle" id="navToggle" aria-label="Toggle menu">&#9776;</button>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#how-it-works">How it works</a></li>
+        <li><a href="#users">User</a></li>
+        <li><a class="btn btn-sm" href="login.html">Login</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero-content">
+        <p class="eyebrow">Petal-PH Flower Shop</p>
+        <h1>Every petal tells a story worth sharing.</h1>
+        <p class="motivation">Brighten someone's day with fresh blooms. A simple bouquet can turn ordinary moments into lasting memories.</p>
+        <div class="hero-actions">
+          <a href="login.html" class="btn">Get Started</a>
+          <a href="#features" class="btn btn-outline">Explore Features</a>
+        </div>
+      </div>
+      <div class="hero-card">
+        <h3>Seasonal Picks</h3>
+        <p>Discover flowers curated for every season and celebration.</p>
+        <ul>
+          <li>Fresh arrangements</li>
+          <li>Easy ordering</li>
+          <li>Thoughtful reminders</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="features" class="section">
+      <h2>Features</h2>
+      <p class="section-lead">Simple tools to help you browse, order, and manage flowers with ease.</p>
+      <div class="grid cards">
+        <article class="card">
+          <h3>Seasonal Products</h3>
+          <p>Browse flowers grouped by season so you can quickly find the perfect bloom for any time of year.</p>
+        </article>
+        <article class="card">
+          <h3>Easy Ordering</h3>
+          <p>Choose products, place orders, and pay via Cash on Delivery, GCash, Maya, or bank transfer.</p>
+        </article>
+        <article class="card">
+          <h3>Order Tracking</h3>
+          <p>Track your orders from placement to delivery in your personal dashboard.</p>
+        </article>
+        <article class="card">
+          <h3>Anniversary Reminders</h3>
+          <p>Get notified about your saved anniversary so you never miss a special moment.</p>
+        </article>
+        <article class="card">
+          <h3>Admin Management</h3>
+          <p>Admins can manage inventory, view customer details, monitor orders, and track sales.</p>
+        </article>
+        <article class="card">
+          <h3>Personal Profile</h3>
+          <p>Keep your contact details and anniversary information updated in one place.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="how-it-works" class="section alt">
+      <h2>How it works</h2>
+      <p class="section-lead">Follow these simple steps to start using Petal-PH.</p>
+      <ol class="steps">
+        <li><strong>Visit Login:</strong> Click the Login button and choose Sign Up if you're new.</li>
+        <li><strong>Create an account:</strong> Enter your email, nickname, status (student or graduated), anniversary, phone number, location, and password.</li>
+        <li><strong>Log in:</strong> Use your email and password to access your dashboard. Admins can log in with the admin account.</li>
+        <li><strong>Browse products:</strong> Explore seasonal flowers and add your chosen items to an order.</li>
+        <li><strong>Place and pay:</strong> Confirm your order and select a payment method: COD, GCash, Maya, or bank.</li>
+        <li><strong>Track and manage:</strong> Track orders, update your profile, and receive anniversary notifications.</li>
+      </ol>
+    </section>
+
+    <section id="users" class="section">
+      <h2>User</h2>
+      <p class="section-lead">Petal-PH supports different users with simple, helpful experiences.</p>
+      <div class="grid cards">
+        <article class="card">
+          <h3>Admin</h3>
+          <p>Manages inventory and prices, views customer orders and registered customer details, and monitors total sales.</p>
+        </article>
+        <article class="card">
+          <h3>Student</h3>
+          <p>Can browse affordable seasonal flowers, place orders easily, track deliveries, and get anniversary reminders.</p>
+        </article>
+        <article class="card">
+          <h3>User</h3>
+          <p>Enjoys a simple way to shop for flowers, choose payment options, manage profile details, and track orders.</p>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="contact-info">
+      <h3>Contact Us</h3>
+      <p><strong>Phone:</strong> <a href="tel:+639385537979">0938 553 7979</a></p>
+      <p><strong>Email:</strong> <a href="https://mail.google.com/mail/?view=cm&fs=1&to=petalphofficial@gmail.com" target="_blank" rel="noopener">petalphofficial@gmail.com</a></p>
+      <p><strong>Facebook:</strong> <a href="https://www.facebook.com/petalphofficial" target="_blank" rel="noopener">Petal PH</a></p>
+      <p><strong>Instagram:</strong> <a href="https://www.instagram.com/petal.ph_/?hl=en" target="_blank" rel="noopener">petal.ph_</a></p>
+    </div>
+    <p>&copy; 2026 Petal-PH. Fresh flowers, fresh feelings.</p>
+  </footer>
+
+  <script src="js/app.js"></script>
+  <script>
+    const navToggle = document.getElementById('navToggle');
+    const navLinks = document.getElementById('navLinks');
+    navToggle.addEventListener('click', () => navLinks.classList.toggle('open'));
+  </script>
+</body>
+</html>

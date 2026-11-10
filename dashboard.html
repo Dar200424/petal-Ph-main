@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Petal-PH | Dashboard</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="app-shell">
+  <header class="topbar">
+    <a class="brand" href="dashboard.html">Petal-PH</a>
+    <button class="burger" id="menuBtn" aria-label="Menu">&#9776;</button>
+  </header>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar">
+      <button class="active" data-page="products">Product</button>
+      <button data-page="track">Track the order</button>
+      <button data-page="profile">Profile</button>
+      <button id="logoutBtn">Log out</button>
+    </aside>
+    <main class="content">
+      <div id="anniversaryNotice" class="notice hidden"></div>
+
+      <section id="products" class="page active">
+        <div class="toolbar">
+          <div>
+            <h2 style="margin:0">Products</h2>
+            <p class="muted" style="margin:.2rem 0 0">Browse seasonal flowers and place your order.</p>
+          </div>
+          <label style="min-width:180px">Season
+            <select id="seasonFilter">
+              <option value="All">All Seasons</option>
+              <option value="Spring">Spring</option>
+              <option value="Summer">Summer</option>
+              <option value="Autumn">Autumn</option>
+              <option value="Winter">Winter</option>
+              <option value="All Season">All Season</option>
+            </select>
+          </label>
+        </div>
+        <div id="productGrid" class="grid products"></div>
+      </section>
+
+      <section id="track" class="page">
+        <h2>Track the order</h2>
+        <p class="muted">View your recent orders and their status.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Order ID</th><th>Product</th><th>Qty</th><th>Total</th><th>Payment</th><th>Status</th><th>Date</th></tr></thead>
+            <tbody id="ordersBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section id="profile" class="page">
+        <h2>Profile</h2>
+        <p class="muted">Your account details and anniversary information.</p>
+        <div class="panel" style="max-width:620px">
+          <div id="profileInfo" class="form-grid"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="orderModal" class="modal hidden">
+    <div class="modal-card">
+      <h3 id="orderProductName">Place Order</h3>
+      <form id="orderForm" class="form-grid">
+        <input type="hidden" id="orderProductId">
+        <label>Quantity
+          <input type="number" id="orderQty" min="1" value="1" required>
+        </label>
+        <label>Payment method
+          <select id="orderPayment" required>
+            <option value="Cash on Delivery">Cash on Delivery</option>
+            <option value="GCash">GCash</option>
+            <option value="Maya">Maya</option>
+            <option value="Bank Transfer (BDO/BPI/Metrobank)">Bank Transfer (BDO/BPI/Metrobank)</option>
+          </select>
+        </label>
+        <label>Delivery notes (optional)
+          <textarea id="orderNotes" rows="3" placeholder="Any special instructions"></textarea>
+        </label>
+        <div class="row" style="justify-content:flex-end; gap:.5rem;">
+          <button type="button" class="btn btn-outline" id="cancelOrder">Cancel</button>
+          <button type="submit" class="btn">Confirm Order</button>
+        </div>
+      </form>
+      <div id="orderMsg" class="msg"></div>
+    </div>
+  </div>
+
+  <script src="js/app.js"></script>
+  <script>
+    const session = PetalApp.requireAuth('user');
+    if (!session) throw new Error('Unauthorized');
+    const user = PetalApp.getUsers().find(u => u.id === session.id);
+    if (!user) { PetalApp.logout(); }
+
+    const sidebar = document.getElementById('sidebar');
+    document.getElementById('menuBtn').addEventListener('click', () => sidebar.classList.toggle('open'));
+    document.querySelectorAll('.sidebar [data-page]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.sidebar [data-page]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.getElementById(btn.dataset.page).classList.add('active');
+        sidebar.classList.remove('open');
+        if (btn.dataset.page === 'track') renderOrders();
+        if (btn.dataset.page === 'profile') renderProfile();
+      });
+    });
+    document.getElementById('logoutBtn').addEventListener('click', PetalApp.logout);
+
+    const notice = PetalApp.anniversaryNotice(user);
+    if (notice) {
+      const el = document.getElementById('anniversaryNotice');
+      el.textContent = notice;
+      el.classList.remove('hidden');
+    }
+
+    function renderProducts() {
+      const season = document.getElementById('seasonFilter').value;
+      const products = PetalApp.getProducts().filter(p => season === 'All' || p.season === season);
+      const grid = document.getElementById('productGrid');
+      grid.innerHTML = products.map(p => `
+        <article class="card product">
+          <span class="badge">${p.season}</span>
+          <h3 style="margin:.2rem 0">${p.name}</h3>
+          <p class="muted" style="margin:0">${p.description || ''}</p>
+          <div class="price">${PetalApp.formatMoney(p.price)}</div>
+          <div class="muted">Stock: ${p.stock}</div>
+          <button class="btn btn-sm" ${p.stock <= 0 ? 'disabled' : ''} onclick="openOrder('${p.id}')">${p.stock <= 0 ? 'Out of stock' : 'Order now'}</button>
+        </article>
+      `).join('') || '<p class="muted">No products available for this season.</p>';
+    }
+    document.getElementById('seasonFilter').addEventListener('change', renderProducts);
+
+    window.openOrder = (id) => {
+      const p = PetalApp.getProducts().find(x => x.id === id);
+      if (!p) return;
+      document.getElementById('orderProductId').value = p.id;
+      document.getElementById('orderProductName').textContent = `Order: ${p.name}`;
+      document.getElementById('orderQty').value = 1;
+      document.getElementById('orderQty').max = p.stock;
+      document.getElementById('orderMsg').textContent = '';
+      document.getElementById('orderModal').classList.remove('hidden');
+    };
+    document.getElementById('cancelOrder').addEventListener('click', () => document.getElementById('orderModal').classList.add('hidden'));
+    document.getElementById('orderModal').addEventListener('click', (e) => { if (e.target.id === 'orderModal') e.currentTarget.classList.add('hidden'); });
+
+    document.getElementById('orderForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const productId = document.getElementById('orderProductId').value;
+      const qty = parseInt(document.getElementById('orderQty').value, 10);
+      const payment = document.getElementById('orderPayment').value;
+      const notes = document.getElementById('orderNotes').value.trim();
+      const products = PetalApp.getProducts();
+      const product = products.find(p => p.id === productId);
+      const msg = document.getElementById('orderMsg');
+      if (!product || qty < 1 || qty > product.stock) {
+        msg.className = 'msg error'; msg.textContent = 'Invalid quantity or insufficient stock.'; return;
+      }
+      product.stock -= qty;
+      PetalApp.saveProducts(products);
+      const orders = PetalApp.getOrders();
+      orders.unshift({
+        id: PetalApp.uid('ord'), userId: user.id, userEmail: user.email, userName: user.nickname,
+        productId: product.id, productName: product.name, qty, total: product.price * qty,
+        payment, notes, status: 'Pending', date: new Date().toISOString()
+      });
+      PetalApp.saveOrders(orders);
+      msg.className = 'msg success'; msg.textContent = 'Order placed successfully!';
+      renderProducts();
+      setTimeout(() => document.getElementById('orderModal').classList.add('hidden'), 700);
+    });
+
+    function renderOrders() {
+      const mine = PetalApp.getOrders().filter(o => o.userId === user.id);
+      const body = document.getElementById('ordersBody');
+      body.innerHTML = mine.map(o => `<tr>
+        <td>${o.id}</td><td>${o.productName}</td><td>${o.qty}</td><td>${PetalApp.formatMoney(o.total)}</td>
+        <td>${o.payment}</td><td>${o.status}</td><td>${new Date(o.date).toLocaleString()}</td>
+      </tr>`).join('') || '<tr><td colspan="7">No orders yet.</td></tr>';
+    }
+
+    function renderProfile() {
+      document.getElementById('profileInfo').innerHTML = `
+        <div><strong>Nickname:</strong> ${user.nickname}</div>
+        <div><strong>Email:</strong> ${user.email}</div>
+        <div><strong>Status:</strong> ${user.status}</div>
+        <div><strong>Anniversary:</strong> ${user.anniversary}</div>
+        <div><strong>Phone:</strong> ${user.phone}</div>
+        <div><strong>Location:</strong> ${user.location}</div>
+      `;
+    }
+
+    renderProducts();
+  </script>
+</body>
+</html>

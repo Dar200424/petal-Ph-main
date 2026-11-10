@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Petal-PH | Login</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <nav class="navbar">
+      <a class="brand" href="index.html">Petal-PH</a>
+      <ul class="nav-links" style="display:flex; position:static; box-shadow:none; border:none; padding:0;">
+        <li><a href="index.html">Home</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main class="auth-wrap">
+    <section class="panel">
+      <h2>Login</h2>
+      <p class="muted">Log in as a customer or admin using your email and password.</p>
+      <form id="loginForm" class="form-grid">
+        <label>Email address
+          <input type="email" id="loginEmail" required>
+        </label>
+        <label>Password
+          <input type="password" id="loginPassword" required>
+        </label>
+        <label class="row"><input type="checkbox" data-toggle="loginPassword"> Show password</label>
+        <button class="btn" type="submit">Login</button>
+      </form>
+      <div id="loginMsg" class="msg"></div>
+    </section>
+
+    <section class="panel">
+      <h2>Sign Up</h2>
+      <p class="muted">Create a customer account to browse products, order, and track deliveries.</p>
+      <form id="signupForm" class="form-grid">
+        <label>Email address
+          <input type="email" id="suEmail" required>
+        </label>
+        <label>Nickname
+          <input type="text" id="suNickname" required>
+        </label>
+        <label>Status
+          <select id="suStatus" required>
+            <option value="">Select status</option>
+            <option value="Student">Student</option>
+            <option value="Graduated">Graduated</option>
+          </select>
+        </label>
+        <label>Anniversary of customer
+          <input type="date" id="suAnniversary" required>
+        </label>
+        <label>Phone number
+          <input type="tel" id="suPhone" required>
+        </label>
+        <label>Location
+          <input type="text" id="suLocation" required>
+        </label>
+        <label>Password
+          <input type="password" id="suPassword" required minlength="6">
+        </label>
+        <label class="row"><input type="checkbox" data-toggle="suPassword"> Show password</label>
+        <button class="btn" type="submit">Create Account</button>
+      </form>
+      <div id="signupMsg" class="msg"></div>
+    </section>
+  </main>
+
+  <script src="js/app.js"></script>
+  <script>
+    const session = PetalApp.getSession();
+    if (session) {
+      window.location.href = session.role === 'admin' ? 'admin.html' : 'dashboard.html';
+    }
+
+    document.querySelectorAll('[data-toggle]').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const input = document.getElementById(cb.dataset.toggle);
+        input.type = cb.checked ? 'text' : 'password';
+      });
+    });
+
+    document.getElementById('loginForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const email = document.getElementById('loginEmail').value.trim();
+      const password = document.getElementById('loginPassword').value;
+      const res = PetalApp.login(email, password);
+      const msg = document.getElementById('loginMsg');
+      if (!res.ok) {
+        msg.className = 'msg error';
+        msg.textContent = res.message;
+        return;
+      }
+      msg.className = 'msg success';
+      msg.textContent = 'Login successful. Redirecting...';
+      window.location.href = res.role === 'admin' ? 'admin.html' : 'dashboard.html';
+    });
+
+    document.getElementById('signupForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const data = {
+        email: document.getElementById('suEmail').value.trim(),
+        nickname: document.getElementById('suNickname').value.trim(),
+        status: document.getElementById('suStatus').value,
+        anniversary: document.getElementById('suAnniversary').value,
+        phone: document.getElementById('suPhone').value.trim(),
+        location: document.getElementById('suLocation').value.trim(),
+        password: document.getElementById('suPassword').value
+      };
+      const res = PetalApp.signup(data);
+      const msg = document.getElementById('signupMsg');
+      if (!res.ok) {
+        msg.className = 'msg error';
+        msg.textContent = res.message;
+        return;
+      }
+      msg.className = 'msg success';
+      msg.textContent = 'Account created. Redirecting to your dashboard...';
+      window.location.href = 'dashboard.html';
+    });
+  </script>
+</body>
+</html>
