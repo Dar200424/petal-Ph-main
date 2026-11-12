@@ -4,16 +4,28 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Petal-PH | Dashboard</title>
+  <link rel="icon" type="image/svg+xml" href="logo.svg">
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body class="app-shell">
   <header class="topbar">
-    <a class="brand" href="dashboard.html">Petal-PH</a>
+    <a class="brand" href="dashboard.html"><img class="brand-logo" src="logo.svg" alt="Petal-PH logo">Petal-PH</a>
+    <div class="user-chip">
+      <button class="icon-btn" id="msgBtn" title="Messages" aria-label="Messages">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3C6.5 3 2 6.9 2 11.7c0 2.6 1.3 4.9 3.3 6.5-.1 1-.6 2.4-1.6 3.4 1.9.1 3.6-.6 4.7-1.4 1.1.3 2.3.5 3.6.5 5.5 0 10-3.9 10-8.7S17.5 3 12 3z"/></svg>
+        <span class="unread-badge hidden" id="msgBadge">0</span>
+      </button>
+      <img id="avatarImg" class="avatar hidden" alt="Profile picture">
+      <span id="avatarFallback" class="avatar avatar-fallback">U</span>
+      <span id="userName" class="muted"></span>
+    </div>
     <button class="burger" id="menuBtn" aria-label="Menu">&#9776;</button>
   </header>
   <div class="layout">
     <aside class="sidebar" id="sidebar">
-      <button class="active" data-page="products">Product</button>
+      <button class="active" data-page="about">About</button>
+      <button data-page="bestsellers">Best Sellers</button>
+      <button data-page="products">Product</button>
       <button data-page="track">Track the order</button>
       <button data-page="profile">Profile</button>
       <button id="logoutBtn">Log out</button>
@@ -21,7 +33,7 @@
     <main class="content">
       <div id="anniversaryNotice" class="notice hidden"></div>
 
-      <section id="products" class="page active">
+      <section id="products" class="page">
         <div class="toolbar">
           <div>
             <h2 style="margin:0">Products</h2>
@@ -41,12 +53,54 @@
         <div id="productGrid" class="grid products"></div>
       </section>
 
+      <section id="bestsellers" class="page">
+        <h2>Best-Selling Flowers</h2>
+        <p class="muted">Top 5 flowers by units sold, calculated from real orders. Use the filters to change the period.</p>
+        <div id="bestSellerChart" class="bs-card">
+          <div class="bs-head">
+            <h3>Best-Selling Flowers</h3>
+            <div class="bs-filters">
+              <button class="bs-filter active" data-period="daily" type="button">Daily</button>
+              <button class="bs-filter" data-period="weekly" type="button">Weekly</button>
+              <button class="bs-filter" data-period="monthly" type="button">Monthly</button>
+              <button class="bs-filter" data-period="yearly" type="button">Yearly</button>
+            </div>
+          </div>
+          <div class="bs-chart">
+            <div class="bs-yaxis"></div>
+            <div class="bs-plot">
+              <div class="bs-grid" style="top:0"></div>
+              <div class="bs-grid" style="top:25%"></div>
+              <div class="bs-grid" style="top:50%"></div>
+              <div class="bs-grid" style="top:75%"></div>
+              <div class="bs-grid" style="top:100%"></div>
+              <div class="bs-empty">No sales in this period yet.</div>
+            </div>
+          </div>
+          <div class="bs-xlabels"></div>
+        </div>
+      </section>
+
+      <section id="about" class="page active">
+        <h2>About Petal-PH</h2>
+        <div class="panel" style="max-width:720px">
+          <h3 style="margin-top:0">Our story</h3>
+          <p>Petal-PH is a homegrown flower shop that believes every bouquet tells a story. We bring fresh seasonal blooms to your doorstep — whether it is a birthday, an anniversary, or simply a "thinking of you" moment.</p>
+          <p>We carefully curate flowers for every season, offer flexible payment options, and send gentle reminders for the moments that matter most.</p>
+          <div class="motivation-box">
+            <div class="motivation-label">A little note for you today</div>
+            <p id="dailyMessage" class="motivation-text"></p>
+          </div>
+          <p class="muted" style="margin-bottom:0">Thank you for being part of Petal-PH. Fresh flowers, fresh feelings — every single day.</p>
+        </div>
+      </section>
+
       <section id="track" class="page">
         <h2>Track the order</h2>
         <p class="muted">View your recent orders and their status.</p>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Order ID</th><th>Product</th><th>Qty</th><th>Total</th><th>Payment</th><th>Status</th><th>Date</th></tr></thead>
+            <thead><tr><th>Order ID</th><th>Product</th><th>Qty</th><th>Total</th><th>Payment</th><th>Status</th><th>Delivery</th><th>Date</th></tr></thead>
             <tbody id="ordersBody"></tbody>
           </table>
         </div>
@@ -54,8 +108,25 @@
 
       <section id="profile" class="page">
         <h2>Profile</h2>
-        <p class="muted">Your account details and anniversary information.</p>
+        <p class="muted">Your account details, profile picture, and anniversary information.</p>
         <div class="panel" style="max-width:620px">
+          <div class="profile-head">
+            <div class="avatar-preview">
+              <img id="profileAvatarImg" class="avatar avatar-lg hidden" alt="Profile picture">
+              <span id="profileAvatarFallback" class="avatar avatar-lg avatar-fallback">U</span>
+            </div>
+            <div>
+              <h3 style="margin:0 0 .25rem">Profile picture</h3>
+              <p class="muted" style="margin:0 0 .6rem">Upload a photo (JPG/PNG). It is resized and saved on this device.</p>
+              <input type="file" id="avatarInput" accept="image/*">
+              <div class="row" style="margin-top:.5rem">
+                <button class="btn btn-sm" id="avatarSave" type="button">Save picture</button>
+                <button class="btn btn-sm btn-outline" id="avatarRemove" type="button">Remove</button>
+              </div>
+              <div id="avatarMsg" class="msg"></div>
+            </div>
+          </div>
+          <hr class="soft-divider">
           <div id="profileInfo" class="form-grid"></div>
         </div>
       </section>
@@ -78,6 +149,9 @@
             <option value="Bank Transfer (BDO/BPI/Metrobank)">Bank Transfer (BDO/BPI/Metrobank)</option>
           </select>
         </label>
+        <label>Delivery address
+          <textarea id="orderAddress" rows="2" required></textarea>
+        </label>
         <label>Delivery notes (optional)
           <textarea id="orderNotes" rows="3" placeholder="Any special instructions"></textarea>
         </label>
@@ -94,7 +168,7 @@
   <script>
     const session = PetalApp.requireAuth('user');
     if (!session) throw new Error('Unauthorized');
-    const user = PetalApp.getUsers().find(u => u.id === session.id);
+    let user = PetalApp.getUsers().find(u => u.id === session.id);
     if (!user) { PetalApp.logout(); }
 
     const sidebar = document.getElementById('sidebar');
@@ -119,30 +193,68 @@
       el.classList.remove('hidden');
     }
 
+    function avatarMarkup(size) {
+      if (user.avatar) return `<img class="avatar ${size}" src="${user.avatar}" alt="${user.nickname}">`;
+      return `<span class="avatar ${size} avatar-fallback">${(user.nickname || 'U').charAt(0).toUpperCase()}</span>`;
+    }
+    function renderAvatar() {
+      const img = document.getElementById('avatarImg');
+      const fb = document.getElementById('avatarFallback');
+      if (user.avatar) {
+        img.src = user.avatar;
+        img.classList.remove('hidden');
+        fb.classList.add('hidden');
+      } else {
+        img.classList.add('hidden');
+        fb.classList.remove('hidden');
+        fb.textContent = (user.nickname || 'U').charAt(0).toUpperCase();
+      }
+      document.getElementById('userName').textContent = user.nickname;
+    }
+    renderAvatar();
+
+    const msgBtn = document.getElementById('msgBtn');
+    const msgBadge = document.getElementById('msgBadge');
+    function renderMsgBadge() {
+      const n = PetalApp.unreadCount(user.id, 'user');
+      msgBadge.textContent = n > 9 ? '9+' : n;
+      msgBadge.classList.toggle('hidden', n === 0);
+    }
+    msgBtn.addEventListener('click', () => { window.location.href = 'messages.html'; });
+    renderMsgBadge();
+    setInterval(renderMsgBadge, 10000);
+
     function renderProducts() {
       const season = document.getElementById('seasonFilter').value;
       const products = PetalApp.getProducts().filter(p => season === 'All' || p.season === season);
       const grid = document.getElementById('productGrid');
-      grid.innerHTML = products.map(p => `
+      grid.innerHTML = products.map(p => {
+        const unavailable = !p.available || p.stock <= 0;
+        return `
         <article class="card product">
-          <span class="badge">${p.season}</span>
+          <div class="product-img-wrap">
+            <img class="product-img" src="${encodeURI(p.image || PetalApp.FALLBACK_IMAGE)}" alt="${p.name}" loading="lazy" onerror="this.onerror=null;this.src='${PetalApp.FALLBACK_IMAGE}'">
+            <span class="badge season-badge">${p.season}</span>
+            ${unavailable ? '<span class="badge out-badge">Unavailable</span>' : ''}
+          </div>
           <h3 style="margin:.2rem 0">${p.name}</h3>
           <p class="muted" style="margin:0">${p.description || ''}</p>
           <div class="price">${PetalApp.formatMoney(p.price)}</div>
           <div class="muted">Stock: ${p.stock}</div>
-          <button class="btn btn-sm" ${p.stock <= 0 ? 'disabled' : ''} onclick="openOrder('${p.id}')">${p.stock <= 0 ? 'Out of stock' : 'Order now'}</button>
-        </article>
-      `).join('') || '<p class="muted">No products available for this season.</p>';
+          <button class="btn btn-sm" ${unavailable ? 'disabled' : ''} onclick="openOrder('${p.id}')">${!p.available ? 'Not available' : (p.stock <= 0 ? 'Out of stock' : 'Order now')}</button>
+        </article>`;
+      }).join('') || '<p class="muted">No products available for this season.</p>';
     }
     document.getElementById('seasonFilter').addEventListener('change', renderProducts);
 
     window.openOrder = (id) => {
       const p = PetalApp.getProducts().find(x => x.id === id);
-      if (!p) return;
+      if (!p || !p.available || p.stock <= 0) return;
       document.getElementById('orderProductId').value = p.id;
       document.getElementById('orderProductName').textContent = `Order: ${p.name}`;
       document.getElementById('orderQty').value = 1;
       document.getElementById('orderQty').max = p.stock;
+      document.getElementById('orderAddress').value = user.location || '';
       document.getElementById('orderMsg').textContent = '';
       document.getElementById('orderModal').classList.remove('hidden');
     };
@@ -154,20 +266,26 @@
       const productId = document.getElementById('orderProductId').value;
       const qty = parseInt(document.getElementById('orderQty').value, 10);
       const payment = document.getElementById('orderPayment').value;
+      const address = document.getElementById('orderAddress').value.trim();
       const notes = document.getElementById('orderNotes').value.trim();
       const products = PetalApp.getProducts();
       const product = products.find(p => p.id === productId);
       const msg = document.getElementById('orderMsg');
-      if (!product || qty < 1 || qty > product.stock) {
-        msg.className = 'msg error'; msg.textContent = 'Invalid quantity or insufficient stock.'; return;
+      if (!product || !product.available || qty < 1 || qty > product.stock) {
+        msg.className = 'msg error'; msg.textContent = 'Invalid quantity, unavailable product, or insufficient stock.'; return;
+      }
+      if (!address) {
+        msg.className = 'msg error'; msg.textContent = 'Please enter a delivery address.'; return;
       }
       product.stock -= qty;
       PetalApp.saveProducts(products);
       const orders = PetalApp.getOrders();
       orders.unshift({
         id: PetalApp.uid('ord'), userId: user.id, userEmail: user.email, userName: user.nickname,
-        productId: product.id, productName: product.name, qty, total: product.price * qty,
-        payment, notes, status: 'Pending', date: new Date().toISOString()
+        productId: product.id, productName: product.name, season: product.season, qty, total: product.price * qty,
+        payment, address, notes, status: 'Pending',
+        deliveryPersonnel: '', deliveryFee: 0, deliveryStatus: 'Preparing',
+        date: new Date().toISOString()
       });
       PetalApp.saveOrders(orders);
       msg.className = 'msg success'; msg.textContent = 'Order placed successfully!';
@@ -180,11 +298,63 @@
       const body = document.getElementById('ordersBody');
       body.innerHTML = mine.map(o => `<tr>
         <td>${o.id}</td><td>${o.productName}</td><td>${o.qty}</td><td>${PetalApp.formatMoney(o.total)}</td>
-        <td>${o.payment}</td><td>${o.status}</td><td>${new Date(o.date).toLocaleString()}</td>
-      </tr>`).join('') || '<tr><td colspan="7">No orders yet.</td></tr>';
+        <td>${o.payment}</td><td>${o.status}</td><td>${o.deliveryPersonnel ? o.deliveryPersonnel + ' — ' : ''}${o.deliveryStatus || 'Preparing'}</td><td>${new Date(o.date).toLocaleString()}</td>
+      </tr>`).join('') || '<tr><td colspan="8">No orders yet.</td></tr>';
     }
 
+    let pendingAvatar = null;
+    document.getElementById('avatarInput').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      const msg = document.getElementById('avatarMsg');
+      if (!file) { pendingAvatar = null; return; }
+      if (!file.type.startsWith('image/')) { msg.className = 'msg error'; msg.textContent = 'Please choose an image file.'; return; }
+      PetalApp.resizeImage(file, 256, (dataUrl) => {
+        pendingAvatar = dataUrl;
+        msg.className = 'msg success';
+        msg.textContent = 'Picture ready. Click "Save picture" to apply.';
+        renderProfileAvatarPreview();
+      });
+    });
+
+    function renderProfileAvatarPreview() {
+      const img = document.getElementById('profileAvatarImg');
+      const fb = document.getElementById('profileAvatarFallback');
+      const src = pendingAvatar || user.avatar;
+      if (src) {
+        img.src = src;
+        img.classList.remove('hidden');
+        fb.classList.add('hidden');
+      } else {
+        img.classList.add('hidden');
+        fb.classList.remove('hidden');
+        fb.textContent = (user.nickname || 'U').charAt(0).toUpperCase();
+      }
+    }
+
+    document.getElementById('avatarSave').addEventListener('click', () => {
+      const msg = document.getElementById('avatarMsg');
+      if (!pendingAvatar) { msg.className = 'msg error'; msg.textContent = 'Choose a picture first.'; return; }
+      if (!PetalApp.updateAvatar(user.id, pendingAvatar)) { msg.className = 'msg error'; msg.textContent = 'Could not save picture.'; return; }
+      user = PetalApp.getUsers().find(u => u.id === session.id);
+      pendingAvatar = null;
+      msg.className = 'msg success'; msg.textContent = 'Profile picture saved.';
+      renderAvatar();
+      renderProfileAvatarPreview();
+    });
+
+    document.getElementById('avatarRemove').addEventListener('click', () => {
+      const msg = document.getElementById('avatarMsg');
+      if (!PetalApp.updateAvatar(user.id, '')) { msg.className = 'msg error'; msg.textContent = 'Could not remove picture.'; return; }
+      user = PetalApp.getUsers().find(u => u.id === session.id);
+      pendingAvatar = null;
+      document.getElementById('avatarInput').value = '';
+      msg.className = 'msg success'; msg.textContent = 'Profile picture removed.';
+      renderAvatar();
+      renderProfileAvatarPreview();
+    });
+
     function renderProfile() {
+      renderProfileAvatarPreview();
       document.getElementById('profileInfo').innerHTML = `
         <div><strong>Nickname:</strong> ${user.nickname}</div>
         <div><strong>Email:</strong> ${user.email}</div>
@@ -196,6 +366,50 @@
     }
 
     renderProducts();
+    renderProfile();
+
+    const DAILY_MESSAGES = [
+      'Every flower blooms at its own time — keep growing, {name}.',
+      'Small acts of kindness, like a single flower, can brighten an entire day. Keep spreading yours, {name}.',
+      'You do not need a special occasion to be appreciated. Today, remember that you matter, {name}.',
+      'Like a garden, life grows best with patience, care, and a little sunshine. Keep tending yours, {name}.',
+      'Your presence makes ordinary days feel like spring, {name}. Thank you for being here.',
+      'Bloom where you are planted, {name}. Your best days are still ahead.',
+      'A grateful heart is like a well-watered garden — it always finds something beautiful to grow, {name}.',
+      'Even the smallest seed holds the promise of a forest. Keep planting yours, {name}.',
+      'Roses do not hurry, yet they are always on time. Trust your season, {name}.',
+      'A flower does not compete with the flower next to it. It just blooms. So should you, {name}.',
+      'After every rain comes a rainbow — and after every storm, a stronger garden, {name}.',
+      'Water your dreams daily; they grow quietly before they bloom, {name}.',
+      'You are someone\'s favorite flower, {name}. Never forget that.',
+      'Tend to your roots on difficult days — the blooms will follow, {name}.',
+      'A single sunflower can brighten a whole room. So can you, {name}.',
+      'Growth is not always visible. Roots grow first, {name}.',
+      'Kindness is like pollen — it travels far and makes everything bloom, {name}.',
+      'Do not wait for the perfect moment; plant today, {name}.',
+      'Your patience today becomes someone\'s favorite bouquet tomorrow, {name}.',
+      'Even gardens need rest. Take care of yourself too, {name}.',
+      'Every petal that falls makes room for new growth, {name}.',
+      'You are stronger than you think and more loved than you know, {name}.',
+      'Fresh starts look a lot like spring — begin again, {name}.',
+      'Let your heart be soft like petals and your roots be strong, {name}.',
+      'The best gardens are not perfect — they are loved. Keep loving yours, {name}.',
+      'A bouquet is proof that ordinary things become beautiful with care, {name}.',
+      'Keep choosing joy; it is the sunlight your soul needs, {name}.',
+      'Difficult days water your strength, {name}.',
+      'Someone out there is waiting for a flower just like you, {name}.',
+      'Today, bloom a little brighter, {name}. The world needs your color.'
+    ];
+    (function renderDailyMessage() {
+      const now = new Date();
+      const start = new Date(now.getFullYear(), 0, 0);
+      const day = Math.floor((now - start) / 86400000);
+      const msg = DAILY_MESSAGES[day % DAILY_MESSAGES.length].replace('{name}', user.nickname);
+      document.getElementById('dailyMessage').textContent = msg;
+    })();
+
+    const bestSellerChart = PetalApp.mountBestSellerChart(document.getElementById('bestSellerChart'));
+    setInterval(() => { if (bestSellerChart) bestSellerChart.update(); }, 8000);
   </script>
 </body>
 </html>

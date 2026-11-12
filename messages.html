@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Petal-PH | Messages</title>
+  <link rel="icon" type="image/svg+xml" href="logo.svg">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="app-shell">
+  <header class="topbar">
+    <a class="brand" href="dashboard.html"><img class="brand-logo" src="logo.svg" alt="Petal-PH logo">Petal-PH</a>
+    <div class="user-chip">
+      <button class="icon-btn" title="Messages" aria-label="Messages">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3C6.5 3 2 6.9 2 11.7c0 2.6 1.3 4.9 3.3 6.5-.1 1-.6 2.4-1.6 3.4 1.9.1 3.6-.6 4.7-1.4 1.1.3 2.3.5 3.6.5 5.5 0 10-3.9 10-8.7S17.5 3 12 3z"/></svg>
+      </button>
+      <img id="avatarImg" class="avatar hidden" alt="Profile picture">
+      <span id="avatarFallback" class="avatar avatar-fallback">U</span>
+      <span id="userName" class="muted"></span>
+      <button class="burger" id="backBtn" aria-label="Back to dashboard">&#8592;</button>
+    </div>
+  </header>
+
+  <main class="chat-shell">
+    <aside class="chat-contact">
+      <img src="logo.svg" class="avatar" alt="Petal-PH Admin" style="background:#fff4f6">
+      <div>
+        <strong>Petal-PH Admin</strong>
+        <div class="muted">Customer support — typically replies fast</div>
+      </div>
+      <ul class="chat-tips">
+        <li>Ask about products and prices</li>
+        <li>Follow up on your orders</li>
+        <li>Get help with payments or delivery</li>
+      </ul>
+    </aside>
+
+    <section class="chat-main">
+      <div id="chatMessages" class="chat-messages"></div>
+      <form id="chatForm" class="chat-input">
+        <input id="chatText" placeholder="Message Petal-PH Admin..." autocomplete="off" required>
+        <button class="btn" type="submit">Send</button>
+      </form>
+    </section>
+  </main>
+
+  <script src="js/app.js"></script>
+  <script>
+    const session = PetalApp.requireAuth('user');
+    if (!session) throw new Error('Unauthorized');
+    const user = PetalApp.getUsers().find(u => u.id === session.id);
+    if (!user) PetalApp.logout();
+
+    document.getElementById('backBtn').addEventListener('click', () => { window.location.href = 'dashboard.html'; });
+
+    const img = document.getElementById('avatarImg');
+    const fb = document.getElementById('avatarFallback');
+    if (user.avatar) { img.src = user.avatar; img.classList.remove('hidden'); fb.classList.add('hidden'); }
+    else { fb.textContent = (user.nickname || 'U').charAt(0).toUpperCase(); }
+    document.getElementById('userName').textContent = user.nickname;
+
+    const box = document.getElementById('chatMessages');
+    const form = document.getElementById('chatForm');
+    const input = document.getElementById('chatText');
+
+    function fmtTime(iso) {
+      const d = new Date(iso);
+      const today = new Date().toDateString() === d.toDateString();
+      return today
+        ? d.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' })
+        : d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString('en-PH', { hour: 'numeric', minute: '2-digit' });
+    }
+
+    function renderChat() {
+      const mine = PetalApp.getMessages().filter(m => m.userId === user.id);
+      if (!mine.length) {
+        box.innerHTML = '<div class="chat-empty">No messages yet. Say hello to Petal-PH Admin — ask about flowers, orders, or delivery.</div>';
+        return;
+      }
+      box.innerHTML = mine.map(m => `
+        <div class="msg-row ${m.from === 'user' ? 'mine' : 'them'}">
+          <div class="bubble">${m.text.replace(/</g, '&lt;')}<span class="time">${fmtTime(m.date)}</span></div>
+        </div>
+      `).join('');
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function poll() {
+      PetalApp.markRead(user.id, 'user');
+      renderChat();
+    }
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = input.value;
+      if (!text.trim()) return;
+      PetalApp.sendMessage(user.id, 'user', text);
+      input.value = '';
+      poll();
+    });
+
+    poll();
+    setInterval(poll, 5000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Petal-PH logo">
+  <defs>
+    <linearGradient id="petal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#e06a97"/>
+      <stop offset="1" stop-color="#a53d64"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="30" fill="#fff4f6" stroke="#f3d7df" stroke-width="2"/>
+  <path d="M32 52 V34" stroke="#2e7d5b" stroke-width="3" stroke-linecap="round"/>
+  <path d="M32 46 C26 46 22.5 42 21.5 37.5 C27 37.5 31 40.5 32 46Z" fill="#2e7d5b"/>
+  <path d="M32 36 C22.5 36 16.5 28.5 16.5 18.5 C21 21.5 25 21.5 28 18.5 C29 22.5 30.2 24.5 32 24.5 C33.8 24.5 35 22.5 36 18.5 C39 21.5 43 21.5 47.5 18.5 C47.5 28.5 41.5 36 32 36Z" fill="url(#petal)"/>
+</svg>
