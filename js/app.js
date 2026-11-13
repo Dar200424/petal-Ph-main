@@ -141,16 +141,17 @@ const PetalApp = (() => {
   function replaceStore(name, values) {
     cache[name] = values || [];
     if (useCloud()) {
-      sbReplace(name, cache[name].map(v => MAPPERS[name].toRow(v))).catch(err => console.warn('Petal-PH: Supabase write failed', err));
-      return;
+      return sbReplace(name, cache[name].map(v => MAPPERS[name].toRow(v)))
+        .catch(err => console.warn('Petal-PH: Supabase write failed', err));
     }
-    if (useFallback || !db) { write(LEGACY_KEYS[name], cache[name]); return; }
+    if (useFallback || !db) { write(LEGACY_KEYS[name], cache[name]); return Promise.resolve(); }
     try {
       const tx = db.transaction(name, 'readwrite');
       const os = tx.objectStore(name);
       os.clear();
       cache[name].forEach(v => os.put(v));
     } catch (err) { console.warn('Petal-PH: IndexedDB write failed', err); }
+    return Promise.resolve();
   }
 
   function importLegacy() {
@@ -238,14 +239,14 @@ const PetalApp = (() => {
     return { ok: true, role: 'user' };
   }
 
-  function signup(data) {
+  async function signup(data) {
     const users = getUsers();
     if (users.some(u => u.email.toLowerCase() === data.email.toLowerCase()) || data.email.toLowerCase() === ADMIN.email.toLowerCase()) {
       return { ok: false, message: 'Email is already registered.' };
     }
     const user = { id: uid('u'), ...data, avatar: '', createdAt: new Date().toISOString() };
     users.push(user);
-    saveUsers(users);
+    await saveUsers(users);
     setSession({ role: 'user', email: user.email, nickname: user.nickname, id: user.id });
     return { ok: true };
   }

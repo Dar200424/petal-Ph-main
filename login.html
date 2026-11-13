@@ -103,7 +103,7 @@
       window.location.href = res.role === 'admin' ? 'admin.html' : 'dashboard.html';
     });
 
-    document.getElementById('signupForm').addEventListener('submit', (e) => {
+    document.getElementById('signupForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const data = {
         email: document.getElementById('suEmail').value.trim(),
@@ -114,14 +114,15 @@
         location: document.getElementById('suLocation').value.trim(),
         password: document.getElementById('suPassword').value
       };
-      const res = PetalApp.signup(data);
       const msg = document.getElementById('signupMsg');
+      msg.className = 'msg success';
+      msg.textContent = 'Creating your account...';
+      const res = await PetalApp.signup(data);
       if (!res.ok) {
         msg.className = 'msg error';
         msg.textContent = res.message;
         return;
       }
-      msg.className = 'msg success';
       msg.textContent = 'Account created. Redirecting to your dashboard...';
       window.location.href = 'dashboard.html';
     });
