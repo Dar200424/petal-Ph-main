@@ -293,8 +293,11 @@
     </div>
   </div>
 
+  <script src="js/config.js"></script>
   <script src="js/app.js"></script>
   <script>
+    (async () => {
+    await PetalApp.init();
     const session = PetalApp.requireAuth('admin');
     if (!session) throw new Error('Unauthorized');
 
@@ -571,7 +574,7 @@
           <td>
             <select id="courier_${o.id}">
               <option value="">Unassigned</option>
-              ${couriers.map(c => `<option value="${c}" ${o.deliveryPersonnel === c ? 'selected' : ''}>${c}</option>`).join('')}
+              ${couriers.map(c => `<option value="${c.name}" ${o.deliveryPersonnel === c.name ? 'selected' : ''}>${c.name}</option>`).join('')}
             </select>
           </td>
           <td><input type="number" min="0" step="0.01" value="${o.deliveryFee || 0}" style="max-width:110px" id="fee_${o.id}"></td>
@@ -802,6 +805,7 @@
     const bestSellerChart = PetalApp.mountBestSellerChart(document.getElementById('bestSellerChart'));
     setInterval(() => { if (bestSellerChart) bestSellerChart.update(); }, 8000);
     renderAll();
+    })();
   </script>
 </body>
 </html>

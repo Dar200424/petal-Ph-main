@@ -44,8 +44,11 @@
     </section>
   </main>
 
+  <script src="js/config.js"></script>
   <script src="js/app.js"></script>
   <script>
+    (async () => {
+    await PetalApp.init();
     const session = PetalApp.requireAuth('user');
     if (!session) throw new Error('Unauthorized');
     const user = PetalApp.getUsers().find(u => u.id === session.id);
@@ -101,6 +104,7 @@
 
     poll();
     setInterval(poll, 5000);
+    })();
   </script>
 </body>
 </html>

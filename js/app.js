@@ -37,44 +37,192 @@ const PetalApp = (() => {
 
   const SEED_COURIERS = ['Jun Marquez', 'Ana Reyes', 'Carlo Dizon', 'Rosa Lim'];
 
+  const DB_NAME = 'petal_ph_db';
+  const DB_VERSION = 1;
+  const STORES = ['users', 'products', 'orders', 'messages', 'couriers'];
+  const LEGACY_KEYS = {
+    users: 'petal_users', products: 'petal_products', orders: 'petal_orders',
+    messages: 'petal_messages', couriers: 'petal_couriers'
+  };
+
+  const cache = { users: [], products: [], orders: [], messages: [], couriers: [] };
+  let db = null;
+  let useFallback = false;
+  let initialized = false;
+
   function read(key, fallback) {
     try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
   }
   function write(key, value) { localStorage.setItem(key, JSON.stringify(value)); }
   function uid(prefix = 'id') { return prefix + '_' + Math.random().toString(36).slice(2, 9) + Date.now().toString(36); }
 
-  function seed() {
-    if (!read(KEYS.products, null)) {
-      write(KEYS.products, SEED_PRODUCTS.map(p => ({ id: uid('p'), ...p, available: true })));
-    } else {
-      const products = getProducts();
-      if (products.some(p => !p.image)) {
-        write(KEYS.products, SEED_PRODUCTS.map(p => ({ id: uid('p'), ...p, available: true })));
-      } else {
-        products.forEach(p => { if (typeof p.available === 'undefined') p.available = true; });
-        saveProducts(products);
-      }
-    }
-    if (!read(KEYS.users, null)) write(KEYS.users, []);
-    else {
-      const users = getUsers();
-      let changed = false;
-      users.forEach(u => { if (typeof u.avatar === 'undefined') { u.avatar = ''; changed = true; } });
-      if (changed) saveUsers(users);
-    }
-    if (!read(KEYS.orders, null)) write(KEYS.orders, []);
-    if (!read(KEYS.couriers, null)) write(KEYS.couriers, SEED_COURIERS.slice());
-    if (!read(KEYS.messages, null)) write(KEYS.messages, []);
+  function openDB() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+      req.onupgradeneeded = () => {
+        const database = req.result;
+        STORES.forEach(name => {
+          if (!database.objectStoreNames.contains(name)) database.createObjectStore(name, { keyPath: 'id' });
+        });
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
   }
 
-  function getUsers() { return read(KEYS.users, []); }
-  function saveUsers(users) { write(KEYS.users, users); }
-  function getProducts() { return read(KEYS.products, []); }
-  function saveProducts(products) { write(KEYS.products, products); }
-  function getOrders() { return read(KEYS.orders, []); }
-  function saveOrders(orders) { write(KEYS.orders, orders); }
-  function getCouriers() { return read(KEYS.couriers, []); }
-  function saveCouriers(couriers) { write(KEYS.couriers, couriers); }
+  function getAllFromDB(store) {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(store, 'readonly');
+      const req = tx.objectStore(store).getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  const MAPPERS = {
+    products: {
+      toRow: p => ({ id: p.id, name: p.name, price: p.price, season: p.season, stock: p.stock, image: p.image, description: p.description || '', available: !!p.available }),
+      toObj: r => ({ id: r.id, name: r.name, price: Number(r.price), season: r.season, stock: r.stock, image: r.image, description: r.description || '', available: r.available })
+    },
+    users: {
+      toRow: u => ({ id: u.id, email: u.email, nickname: u.nickname, status: u.status, anniversary: u.anniversary || null, phone: u.phone, location: u.location, password: u.password, avatar: u.avatar || '', created_at: u.createdAt }),
+      toObj: r => ({ id: r.id, email: r.email, nickname: r.nickname, status: r.status, anniversary: r.anniversary, phone: r.phone, location: r.location, password: r.password, avatar: r.avatar || '', createdAt: r.created_at })
+    },
+    orders: {
+      toRow: o => ({ id: o.id, user_id: o.userId, user_email: o.userEmail, user_name: o.userName, product_id: o.productId, product_name: o.productName, season: o.season || null, qty: o.qty, total: o.total, payment: o.payment, address: o.address || '', notes: o.notes || '', status: o.status, delivery_personnel: o.deliveryPersonnel || '', delivery_fee: o.deliveryFee || 0, delivery_status: o.deliveryStatus || 'Preparing', created_at: o.date }),
+      toObj: r => ({ id: r.id, userId: r.user_id, userEmail: r.user_email, userName: r.user_name, productId: r.product_id, productName: r.product_name, season: r.season, qty: r.qty, total: Number(r.total), payment: r.payment, address: r.address || '', notes: r.notes || '', status: r.status, deliveryPersonnel: r.delivery_personnel || '', deliveryFee: Number(r.delivery_fee || 0), deliveryStatus: r.delivery_status || 'Preparing', date: r.created_at })
+    },
+    messages: {
+      toRow: m => ({ id: m.id, user_id: m.userId, sender: m.from, body: m.text, read_by_user: !!m.readByUser, read_by_admin: !!m.readByAdmin, created_at: m.date }),
+      toObj: r => ({ id: r.id, userId: r.user_id, from: r.sender, text: r.body, readByUser: r.read_by_user, readByAdmin: r.read_by_admin, date: r.created_at })
+    },
+    couriers: {
+      toRow: c => ({ id: c.id, name: c.name }),
+      toObj: r => ({ id: r.id, name: r.name })
+    }
+  };
+
+  function useCloud() {
+    const url = (window.PETAL_CONFIG && window.PETAL_CONFIG.supabaseUrl) || '';
+    const key = (window.PETAL_CONFIG && window.PETAL_CONFIG.supabaseAnonKey) || '';
+    return /^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test(url) && key.length > 20 && !/YOUR-|xxxx/i.test(key);
+  }
+
+  function sbFetch(path, options) {
+    const url = window.PETAL_CONFIG.supabaseUrl.replace(/\/$/, '');
+    const key = window.PETAL_CONFIG.supabaseAnonKey;
+    return fetch(`${url}/rest/v1/${path}`, Object.assign({}, options, {
+      headers: Object.assign({
+        apikey: key,
+        Authorization: 'Bearer ' + key,
+        'Content-Type': 'application/json'
+      }, (options && options.headers) || {})
+    }));
+  }
+
+  async function sbReplace(name, rows) {
+    const del = await sbFetch(`${name}?id=not.is.null`, { method: 'DELETE', headers: { Prefer: 'return=minimal' } });
+    if (!del.ok) throw new Error(`Supabase delete failed on ${name}: ${del.status}`);
+    if (rows.length) {
+      const ins = await sbFetch(name, { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(rows) });
+      if (!ins.ok) throw new Error(`Supabase insert failed on ${name}: ${ins.status}`);
+    }
+  }
+
+  async function loadFromCloud() {
+    for (const name of STORES) {
+      const res = await sbFetch(`${name}?select=*`);
+      if (!res.ok) throw new Error(`Supabase load failed on ${name}: ${res.status}`);
+      const rows = await res.json();
+      cache[name] = (rows || []).map(r => MAPPERS[name].toObj(r));
+    }
+  }
+
+  function replaceStore(name, values) {
+    cache[name] = values || [];
+    if (useCloud()) {
+      sbReplace(name, cache[name].map(v => MAPPERS[name].toRow(v))).catch(err => console.warn('Petal-PH: Supabase write failed', err));
+      return;
+    }
+    if (useFallback || !db) { write(LEGACY_KEYS[name], cache[name]); return; }
+    try {
+      const tx = db.transaction(name, 'readwrite');
+      const os = tx.objectStore(name);
+      os.clear();
+      cache[name].forEach(v => os.put(v));
+    } catch (err) { console.warn('Petal-PH: IndexedDB write failed', err); }
+  }
+
+  function importLegacy() {
+    const imported = [];
+    STORES.forEach(name => {
+      const legacy = read(LEGACY_KEYS[name], null);
+      if (!cache[name].length && Array.isArray(legacy) && legacy.length) { cache[name] = legacy; imported.push(name); }
+      localStorage.removeItem(LEGACY_KEYS[name]);
+    });
+    return imported;
+  }
+
+  async function init() {
+    if (initialized) return;
+    if (useCloud()) {
+      try {
+        await loadFromCloud();
+      } catch (err) {
+        console.warn('Petal-PH: Supabase unavailable, using local storage', err);
+        useFallback = true;
+        for (const name of STORES) cache[name] = read(LEGACY_KEYS[name], []) || [];
+      }
+    } else {
+      try {
+        if (!('indexedDB' in window)) throw new Error('IndexedDB unavailable');
+        db = await openDB();
+        for (const name of STORES) cache[name] = await getAllFromDB(name);
+      } catch (err) {
+        console.warn('Petal-PH: using localStorage fallback', err);
+        useFallback = true;
+        for (const name of STORES) cache[name] = read(LEGACY_KEYS[name], []) || [];
+      }
+    }
+    const imported = importLegacy();
+    seed();
+    if (useCloud()) imported.forEach(name => replaceStore(name, cache[name]));
+    initialized = true;
+  }
+
+  function seedCouriers() { return SEED_COURIERS.map(name => ({ id: uid('c'), name })); }
+
+  function seed() {
+    let productsChanged = false;
+    if (!cache.products.length || cache.products.some(p => !p.image)) {
+      cache.products = SEED_PRODUCTS.map(p => ({ id: uid('p'), ...p, available: true }));
+      productsChanged = true;
+    }
+    cache.products.forEach(p => { if (typeof p.available === 'undefined') { p.available = true; productsChanged = true; } });
+
+    let usersChanged = false;
+    cache.users.forEach(u => { if (typeof u.avatar === 'undefined') { u.avatar = ''; usersChanged = true; } });
+
+    let couriersChanged = false;
+    if (!cache.couriers.length) { cache.couriers = seedCouriers(); couriersChanged = true; }
+    else if (cache.couriers.some(c => typeof c === 'string')) {
+      cache.couriers = cache.couriers.map(c => typeof c === 'string' ? { id: uid('c'), name: c } : c);
+      couriersChanged = true;
+    }
+
+    if (productsChanged) replaceStore('products', cache.products);
+    if (usersChanged) replaceStore('users', cache.users);
+    if (couriersChanged) replaceStore('couriers', cache.couriers);
+  }
+
+  function getUsers() { return cache.users; }
+  function saveUsers(users) { replaceStore('users', users); }
+  function getProducts() { return cache.products; }
+  function saveProducts(products) { replaceStore('products', products); }
+  function getOrders() { return cache.orders; }
+  function saveOrders(orders) { replaceStore('orders', orders); }
+  function getCouriers() { return cache.couriers; }
+  function saveCouriers(couriers) { replaceStore('couriers', couriers); }
   function getSession() { return read(KEYS.session, null); }
   function setSession(session) { write(KEYS.session, session); }
   function clearSession() { localStorage.removeItem(KEYS.session); }
@@ -194,8 +342,8 @@ const PetalApp = (() => {
 
   function revenueOf(order) { return (order.status === 'Rejected' || order.status === 'Cancelled') ? 0 : (order.total || 0); }
 
-  function getMessages() { return read(KEYS.messages, []); }
-  function saveMessages(messages) { write(KEYS.messages, messages); }
+  function getMessages() { return cache.messages; }
+  function saveMessages(messages) { replaceStore('messages', messages); }
 
   function sendMessage(userId, from, text) {
     const clean = String(text || '').trim();
@@ -367,11 +515,10 @@ const PetalApp = (() => {
     return '';
   }
 
-  seed();
   return {
     KEYS, ADMIN, FALLBACK_IMAGE, LOW_STOCK_THRESHOLD,
     ORDER_STATUS, DELIVERY_STATUS, ACTIVE_STATUSES,
-    read, write, uid,
+    init, read, write, uid,
     getUsers, saveUsers, getProducts, saveProducts, getOrders, saveOrders, getCouriers, saveCouriers,
     getSession, setSession, clearSession,
     login, signup, requireAuth, logout,

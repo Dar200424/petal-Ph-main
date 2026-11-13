@@ -70,8 +70,11 @@
     </section>
   </main>
 
+  <script src="js/config.js"></script>
   <script src="js/app.js"></script>
   <script>
+    (async () => {
+    await PetalApp.init();
     const session = PetalApp.getSession();
     if (session) {
       window.location.href = session.role === 'admin' ? 'admin.html' : 'dashboard.html';
@@ -122,6 +125,7 @@
       msg.textContent = 'Account created. Redirecting to your dashboard...';
       window.location.href = 'dashboard.html';
     });
+    })();
   </script>
 </body>
 </html>

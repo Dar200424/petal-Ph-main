@@ -164,8 +164,11 @@
     </div>
   </div>
 
+  <script src="js/config.js"></script>
   <script src="js/app.js"></script>
   <script>
+    (async () => {
+    await PetalApp.init();
     const session = PetalApp.requireAuth('user');
     if (!session) throw new Error('Unauthorized');
     let user = PetalApp.getUsers().find(u => u.id === session.id);
@@ -410,6 +413,7 @@
 
     const bestSellerChart = PetalApp.mountBestSellerChart(document.getElementById('bestSellerChart'));
     setInterval(() => { if (bestSellerChart) bestSellerChart.update(); }, 8000);
+    })();
   </script>
 </body>
 </html>
