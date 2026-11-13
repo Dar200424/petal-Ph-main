@@ -109,7 +109,7 @@ const PetalApp = (() => {
   }
 
   function sbFetch(path, options) {
-    const url = window.PETAL_CONFIG.supabaseUrl.replace(/\/$/, '');
+    const url = window.PETAL_CONFIG.supabaseUrl.replace(/\/+$/, '').replace(/\/rest\/v1$/, '');
     const key = window.PETAL_CONFIG.supabaseAnonKey;
     return fetch(`${url}/rest/v1/${path}`, Object.assign({}, options, {
       headers: Object.assign({

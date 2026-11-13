@@ -1,4 +1,4 @@
 window.PETAL_CONFIG = {
-  supabaseUrl: 'https://YOUR-PROJECT-ID.supabase.co',
-  supabaseAnonKey: 'YOUR-SUPABASE-ANON-KEY'
+  supabaseUrl: 'https://wamrvqljzagbckzajoai.supabase.co',
+  supabaseAnonKey: 'sb_publishable_Em6SxKCYyIIHC7UBC0fhMQ_iXDvgppl'
 };
