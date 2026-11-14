@@ -100,7 +100,7 @@
         <p class="muted">View your recent orders and their status.</p>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Order ID</th><th>Product</th><th>Qty</th><th>Total</th><th>Payment</th><th>Status</th><th>Delivery</th><th>Date</th></tr></thead>
+            <thead><tr><th>Order ID</th><th>Product</th><th>Qty</th><th>Item Total</th><th>Delivery Fee</th><th>Order Total</th><th>Payment</th><th>Status</th><th>Delivery</th><th>Date</th><th>Action</th></tr></thead>
             <tbody id="ordersBody"></tbody>
           </table>
         </div>
@@ -164,7 +164,7 @@
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0" integrity="sha384-NNePyabYRaJyedI6EQAY7SV5Z8/0sQkuQ5WVfhKm0H+j0KSugkI2ZMNzw/QtzAWz" crossorigin="anonymous"></script>
   <script src="js/config.js"></script>
   <script src="js/app.js"></script>
   <script>
@@ -182,13 +182,13 @@
     const sidebar = document.getElementById('sidebar');
     document.getElementById('menuBtn').addEventListener('click', () => sidebar.classList.toggle('open'));
     document.querySelectorAll('.sidebar [data-page]').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         document.querySelectorAll('.sidebar [data-page]').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
         document.getElementById(btn.dataset.page).classList.add('active');
         sidebar.classList.remove('open');
-        if (btn.dataset.page === 'track') renderOrders();
+        if (btn.dataset.page === 'track') { await PetalApp.loadOwn(); renderOrders(); }
         if (btn.dataset.page === 'profile') renderProfile();
       });
     });
@@ -226,7 +226,15 @@
     }
     msgBtn.addEventListener('click', () => { window.location.href = 'messages.html'; });
     renderMsgBadge();
-    setInterval(renderMsgBadge, 10000);
+    setInterval(async () => {
+      try {
+        await PetalApp.loadOwn();
+        renderMsgBadge();
+        if (document.getElementById('track').classList.contains('active')) renderOrders();
+      } catch (err) {
+        console.warn('Petal-PH: dashboard poll failed', err);
+      }
+    }, 10000);
 
     function renderProducts() {
       const season = document.getElementById('seasonFilter').value;
@@ -265,8 +273,10 @@
     document.getElementById('cancelOrder').addEventListener('click', () => document.getElementById('orderModal').classList.add('hidden'));
     document.getElementById('orderModal').addEventListener('click', (e) => { if (e.target.id === 'orderModal') e.currentTarget.classList.add('hidden'); });
 
+    let orderBusy = false;
     document.getElementById('orderForm').addEventListener('submit', async (e) => {
       e.preventDefault();
+      if (orderBusy) return;
       const productId = document.getElementById('orderProductId').value;
       const qty = parseInt(document.getElementById('orderQty').value, 10);
       const payment = document.getElementById('orderPayment').value;
@@ -280,9 +290,18 @@
       if (!address) {
         msg.className = 'msg error'; msg.textContent = 'Please enter a delivery address.'; return;
       }
+      const submitBtn = e.target.querySelector('button[type="submit"]');
+      orderBusy = true;
+      if (submitBtn) { submitBtn.disabled = true; submitBtn.dataset.label = submitBtn.textContent; submitBtn.textContent = 'Placing order...'; }
       msg.className = 'msg';
       msg.textContent = 'Placing your order...';
-      const res = await PetalApp.placeOrder(productId, qty, payment, address, notes);
+      let res;
+      try {
+        res = await PetalApp.placeOrder(productId, qty, payment, address, notes);
+      } finally {
+        orderBusy = false;
+        if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = submitBtn.dataset.label || 'Confirm Order'; }
+      }
       if (!res.ok) {
         msg.className = 'msg error';
         msg.textContent = res.message || 'Could not place order.';
@@ -297,11 +316,26 @@
     function renderOrders() {
       const mine = PetalApp.getMyOrders();
       const body = document.getElementById('ordersBody');
-      body.innerHTML = mine.map(o => `<tr>
-        <td>${PetalApp.escapeHtml(o.id)}</td><td>${PetalApp.escapeHtml(o.product_name)}</td><td>${o.qty}</td><td>${PetalApp.formatMoney(o.total)}</td>
+      body.innerHTML = mine.map(o => {
+        const fee = o.delivery_fee || 0;
+        const total = (o.total || 0) + fee;
+        const canCancel = o.status === 'Pending';
+        return `<tr>
+        <td>${PetalApp.escapeHtml(o.id)}</td><td>${PetalApp.escapeHtml(o.product_name)}</td><td>${o.qty}</td><td>${PetalApp.formatMoney(o.total)}</td><td>${PetalApp.formatMoney(fee)}</td><td>${PetalApp.formatMoney(total)}</td>
         <td>${PetalApp.escapeHtml(o.payment || '')}</td><td>${PetalApp.escapeHtml(o.status)}</td><td>${o.delivery_personnel ? PetalApp.escapeHtml(o.delivery_personnel) + ' — ' : ''}${PetalApp.escapeHtml(o.delivery_status || 'Preparing')}</td><td>${new Date(o.created_at).toLocaleString()}</td>
-      </tr>`).join('') || '<tr><td colspan="8">No orders yet.</td></tr>';
+        <td>${canCancel ? `<button class="btn btn-sm btn-danger" onclick="cancelOrder(this.dataset.id)" data-id="${PetalApp.escapeHtml(o.id)}">Cancel</button>` : ''}</td>
+      </tr>`;
+      }).join('') || '<tr><td colspan="11">No orders yet.</td></tr>';
     }
+
+    window.cancelOrder = async (orderId) => {
+      if (!confirm('Cancel this order?')) return;
+      const res = await PetalApp.cancelMyOrder(orderId);
+      if (!res.ok) { alert(res.message || 'Could not cancel order.'); return; }
+      renderOrders();
+      await PetalApp.refreshProducts();
+      renderProducts();
+    };
 
     let pendingAvatar = null;
     document.getElementById('avatarInput').addEventListener('change', (e) => {
