@@ -32,6 +32,11 @@ const PetalApp = (() => {
     cache.me = session ? session.user : null;
     if (cache.me) {
       await loadOwn();
+      if (cache.profile && (cache.profile.deleted_at || cache.profile.disabled)) {
+        try { if (sb) await sb.auth.signOut(); } catch (err) { console.warn('Petal-PH: signOut failed', err); }
+        cache.me = null;
+        cache.profile = null;
+      }
     }
     sb.auth.onAuthStateChange((_event, session) => {
       cache.me = session ? session.user : null;
@@ -41,6 +46,14 @@ const PetalApp = (() => {
 
   function requireAuth(role) {
     if (!cache.me) { window.location.href = 'login.html'; return null; }
+    if (cache.profile && (cache.profile.deleted_at || cache.profile.disabled)) {
+      try { if (sb) sb.auth.signOut(); } catch (err) { console.warn('Petal-PH: signOut failed', err); }
+      cache.me = null;
+      cache.profile = null;
+      alert('This account has been disabled. Please contact the shop.');
+      window.location.href = 'login.html';
+      return null;
+    }
     if (role && cache.profile && cache.profile.role !== role) {
       window.location.href = cache.profile.role === 'admin' ? 'admin.html' : 'dashboard.html';
       return null;
@@ -48,8 +61,12 @@ const PetalApp = (() => {
     return cache.me;
   }
 
-  function logout() {
-    if (sb) sb.auth.signOut();
+  async function logout() {
+    try {
+      if (sb) await sb.auth.signOut();
+    } catch (err) {
+      console.warn('Petal-PH: signOut failed', err);
+    }
     cache.me = null; cache.profile = null;
     window.location.href = 'login.html';
   }
@@ -59,6 +76,12 @@ const PetalApp = (() => {
     if (error) return { ok: false, message: 'Invalid email or password.' };
     cache.me = data.user;
     await loadOwn();
+    if (cache.profile && (cache.profile.deleted_at || cache.profile.disabled)) {
+      try { if (sb) await sb.auth.signOut(); } catch (err) { console.warn('Petal-PH: signOut failed', err); }
+      cache.me = null;
+      cache.profile = null;
+      return { ok: false, message: 'This account has been disabled. Please contact the shop.' };
+    }
     return { ok: true, role: cache.profile ? cache.profile.role : 'user' };
   }
 
@@ -124,6 +147,7 @@ const PetalApp = (() => {
 
   function getMyProfile() { return cache.profile; }
   function getMyOrders() { return cache.orders; }
+  function getOrders() { return cache.orders; }
   function getMessages() { return cache.messages; }
   function getProducts() { return cache.products; }
   function getCouriers() { return cache.couriers; }
@@ -131,6 +155,9 @@ const PetalApp = (() => {
   function getMessageUser(userId) { return cache.profile && cache.profile.id === userId ? cache.profile : null; }
 
   async function placeOrder(productId, qty, payment, address, notes) {
+    if (cache.profile && (cache.profile.deleted_at || cache.profile.disabled)) {
+      return { ok: false, message: 'Account disabled' };
+    }
     const { data, error } = await sb.rpc('place_order', {
       p_product_id: productId,
       p_qty: qty,
@@ -162,6 +189,13 @@ const PetalApp = (() => {
     const { data, error } = await sb.from('couriers').select('*').order('name');
     if (error) { console.warn('Petal-PH: courier refresh failed', error); return; }
     cache.couriers = data || [];
+  }
+
+  async function getAllProfiles(includeAvatar) {
+    const cols = includeAvatar ? '*' : 'id,email,nickname,status,anniversary,phone,location,role,created_at,deleted_at,disabled';
+    const { data, error } = await sb.from('profiles').select(cols).order('created_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
   }
 
   async function setOrderStatus(orderId, status) {
@@ -275,14 +309,17 @@ const PetalApp = (() => {
     return { ok: true };
   }
 
-  async function deleteCustomer(userId) {
-    const { error: e1 } = await sb.from('messages').delete().eq('user_id', userId);
-    if (e1) return { ok: false, message: e1.message };
-    const { error: e2 } = await sb.from('orders').delete().eq('user_id', userId);
-    if (e2) return { ok: false, message: e2.message };
-    const { error: e3 } = await sb.from('profiles').delete().eq('id', userId);
-    if (e3) return { ok: false, message: e3.message };
-    await loadAll();
+  async function softDeleteCustomer(userId) {
+    const { error } = await sb.from('profiles').update({ deleted_at: new Date().toISOString() }).eq('id', userId);
+    if (error) return { ok: false, message: error.message };
+    await refreshReports();
+    return { ok: true };
+  }
+
+  async function restoreCustomer(userId) {
+    const { error } = await sb.from('profiles').update({ deleted_at: null }).eq('id', userId);
+    if (error) return { ok: false, message: error.message };
+    await refreshReports();
     return { ok: true };
   }
 
@@ -302,37 +339,19 @@ const PetalApp = (() => {
     return { ok: true };
   }
 
-  function getSeason() {
-    const m = new Date().getMonth();
-    if (m >= 2 && m <= 4) return 'Spring';
-    if (m >= 5 && m <= 7) return 'Summer';
-    if (m >= 8 && m <= 10) return 'Autumn';
-    return 'Winter';
+  function safeAvatar(v) {
+    if (typeof v !== 'string') return '';
+    return v.startsWith('data:image/') ? v : '';
   }
 
   function revenueOf(order) {
-    return (order.status === 'Rejected' || order.status === 'Cancelled') ? 0 : (order.total || 0);
+    return (order.status === 'Rejected' || order.status === 'Cancelled') ? 0 : ((order.total || 0) + (order.delivery_fee || 0));
   }
 
-  function bestSellers(period) {
-    const now = new Date();
-    let start;
-    if (period === 'daily') start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    else if (period === 'weekly') { start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6); }
-    else if (period === 'monthly') start = new Date(now.getFullYear(), now.getMonth(), 1);
-    else start = new Date(now.getFullYear(), 0, 1);
-
-    const counts = {};
-    cache.orders.forEach(o => {
-      if (o.status === 'Rejected' || o.status === 'Cancelled') return;
-      if (!o.payment) return;
-      if (new Date(o.created_at) < start) return;
-      counts[o.product_name] = (counts[o.product_name] || 0) + (o.qty || 0);
-    });
-    return Object.entries(counts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([name, units]) => ({ name, units }));
+  async function bestSellers(period) {
+    const { data, error } = await sb.rpc('best_sellers', { p_period: period });
+    if (error) { console.warn('Petal-PH: best_sellers failed', error); return []; }
+    return (data || []).map(r => ({ name: r.product_name, units: Number(r.units) || 0 }));
   }
 
   function mountBestSellerChart(root) {
@@ -364,8 +383,16 @@ const PetalApp = (() => {
       return step * pow;
     }
 
-    function update() {
-      const data = bestSellers(period);
+    let updateTimer = null;
+    async function update() {
+      if (updateTimer) clearTimeout(updateTimer);
+      updateTimer = setTimeout(async () => {
+        const data = await bestSellers(period);
+        renderBars(data);
+      }, 150);
+    }
+
+    function renderBars(data) {
       empty.style.display = data.length ? 'none' : 'block';
       const max = niceMax(Math.max(...data.map(d => d.units), 0));
       yaxis.innerHTML = [0, 1, 2, 3, 4]
@@ -453,18 +480,18 @@ const PetalApp = (() => {
   return {
     FALLBACK_IMAGE, LOW_STOCK_THRESHOLD,
     ORDER_STATUS, DELIVERY_STATUS, ACTIVE_STATUSES,
-    sb,
+    get sb() { return sb; },
     cache,
-    isConfigured, init, reload, loadAll, loadOwn, refreshProducts, refreshCouriers,
+    isConfigured, init, reload, loadAll, loadOwn, refreshProducts, refreshCouriers, getAllProfiles,
     requireAuth, logout, login, signup, getSession,
-    getMyProfile, getMyOrders, getMessages, getProducts, getCouriers, getMessageUser,
+    getMyProfile, getMyOrders, getOrders, getMessages, getProducts, getCouriers, getMessageUser,
     placeOrder, cancelMyOrder,
     setOrderStatus, saveDelivery,
     sendMessage, markRead, unreadCount, conversationList,
     updateAvatar, removeAvatar,
     saveProduct, deleteProduct, setAvailability, setStock,
-    deleteCustomer, addCourier, removeCourier,
-    getSeason, revenueOf, bestSellers, mountBestSellerChart,
+    softDeleteCustomer, restoreCustomer, addCourier, removeCourier,
+    safeAvatar, revenueOf, bestSellers, mountBestSellerChart,
     resizeImage, formatMoney, todayISO, anniversaryNotice, escapeHtml
   };
 })();
