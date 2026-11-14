@@ -64,13 +64,21 @@
           <input type="password" id="suPassword" required minlength="6">
         </label>
         <label class="row"><input type="checkbox" data-toggle="suPassword"> Show password</label>
+        <div class="privacy-note" style="font-size:.8rem;color:var(--muted,#777);margin:.4rem 0;padding:.6rem;border:1px solid #eee;border-radius:6px;">
+          <strong>Privacy Notice (Philippine Data Privacy Act of 2012 / RA 10173):</strong>
+          By signing up, you agree that Petal-PH may collect, use, and store your email address, nickname, status, anniversary, phone number, location, profile picture, orders, and messages solely for order processing, delivery, and customer support. Your data is stored on Supabase (cloud) and is not sold to third parties. You may request deletion by contacting the shop.
+        </div>
+        <label class="row" style="align-items:flex-start;">
+          <input type="checkbox" id="suPrivacy" required style="margin-top:.2rem;">
+          <span style="font-size:.85rem;">I have read and agree to the Privacy Notice above. (Required)</span>
+        </label>
         <button class="btn" type="submit">Create Account</button>
       </form>
       <div id="signupMsg" class="msg"></div>
     </section>
   </main>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0" integrity="sha384-NNePyabYRaJyedI6EQAY7SV5Z8/0sQkuQ5WVfhKm0H+j0KSugkI2ZMNzw/QtzAWz" crossorigin="anonymous"></script>
   <script src="js/config.js"></script>
   <script src="js/app.js"></script>
   <script>
@@ -118,6 +126,11 @@
         password: document.getElementById('suPassword').value
       };
       const msg = document.getElementById('signupMsg');
+      if (!document.getElementById('suPrivacy').checked) {
+        msg.className = 'msg error';
+        msg.textContent = 'Please agree to the Privacy Notice to create an account.';
+        return;
+      }
       msg.className = 'msg';
       msg.textContent = 'Creating your account...';
       const res = await PetalApp.signup(data);
