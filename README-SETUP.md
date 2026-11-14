@@ -28,10 +28,20 @@ in order.
    `products`, `couriers`, `orders`, `messages`), security policies, and seed
    products/couriers are now created.
 
+**Existing project?** If you already ran an older version of the schema, run
+`supabase/migrations/2026-11-14_security-and-fixes.sql` instead (one time). It
+adds the new columns (`deleted_at`, `disabled`, `delivery_date`), security
+constraints, the `best_sellers` function, and updated triggers — all in a single
+transaction, safe to re-run.
+
 ## Step 3 — Turn off email confirmation (demo mode)
 
 1. Left sidebar → **Authentication** → **Providers** → **Email**.
 2. Turn **Confirm email** OFF and save.
+
+> **Before going live:** turn **Confirm email** back ON so only verified
+> emails can sign in. Also keep the `service_role` key out of the repository
+> — it is never needed by the website.
 
 ## Step 4 — Connect the site to your project
 
@@ -40,8 +50,8 @@ in order.
 3. Open `js/config.js` in this project and replace the two lines with your values:
 
    ```js
-   const SUPABASE_URL = 'https://YOUR-PROJECT-ref.supabase.co';
-   const SUPABASE_ANON_KEY = 'YOUR-anon-or-publishable-key';
+   window.SUPABASE_URL = 'https://YOUR-PROJECT-ref.supabase.co';
+   window.SUPABASE_ANON_KEY = 'YOUR-anon-or-publishable-key';
    ```
 
    Never paste the `service_role` key here — it must stay secret and is never

@@ -15,7 +15,9 @@ create table if not exists public.profiles (
   location text,
   avatar text default '',
   role text not null default 'user' check (role in ('user', 'admin')),
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+  deleted_at timestamptz,
+  disabled boolean not null default false
 );
 
 create table if not exists public.products (
@@ -53,6 +55,7 @@ create table if not exists public.orders (
   delivery_personnel text default '',
   delivery_fee numeric default 0,
   delivery_status text default 'Preparing',
+  delivery_date date,
   created_at timestamptz default now()
 );
 
@@ -103,7 +106,7 @@ begin
     new.email,
     coalesce(new.raw_user_meta_data ->> 'nickname', split_part(new.email, '@', 1)),
     new.raw_user_meta_data ->> 'status',
-    nullif(new.raw_user_meta_data ->> 'anniversary', ''),
+    nullif(new.raw_user_meta_data ->> 'anniversary', '')::date,
     new.raw_user_meta_data ->> 'phone',
     new.raw_user_meta_data ->> 'location'
   )
@@ -136,6 +139,37 @@ create policy "profiles update own or admin" on public.profiles
   with check ((id = auth.uid() and role = public.my_role()) or public.is_admin());
 create policy "profiles delete admin" on public.profiles
   for delete using (public.is_admin());
+
+-- Non-admins cannot change email, role, created_at, or id
+create or replace function public.profiles_update_guard()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not public.is_admin() then
+    if new.email <> old.email then
+      raise exception 'You cannot change your email';
+    end if;
+    if new.role <> old.role then
+      raise exception 'You cannot change your role';
+    end if;
+    if new.created_at <> old.created_at then
+      raise exception 'You cannot change your registration date';
+    end if;
+    if new.id <> old.id then
+      raise exception 'You cannot change your account id';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists profiles_update_guard on public.profiles;
+create trigger profiles_update_guard
+  before update on public.profiles
+  for each row execute function public.profiles_update_guard();
 
 -- products: everyone reads, only admin writes
 drop policy if exists "products read all" on public.products;
@@ -185,8 +219,8 @@ create policy "messages read own or admin" on public.messages
   for select using (user_id = auth.uid() or public.is_admin());
 create policy "messages insert user or admin" on public.messages
   for insert with check (
-    (sender = 'user' and user_id = auth.uid())
-    or (sender = 'admin' and public.is_admin())
+    (sender = 'user' and user_id = auth.uid() and read_by_user = true and read_by_admin = false)
+    or (sender = 'admin' and public.is_admin() and read_by_admin = true and read_by_user = false)
   );
 create policy "messages update own or admin" on public.messages
   for update using (user_id = auth.uid() or public.is_admin())
@@ -204,6 +238,12 @@ as $$
 begin
   if not public.is_admin() then
     if new.sender <> old.sender or new.body <> old.body or new.user_id <> old.user_id then
+      raise exception 'You can only update read_by_user on your own messages';
+    end if;
+    if new.read_by_admin <> old.read_by_admin then
+      raise exception 'You cannot change read_by_admin';
+    end if;
+    if new.read_by_user <> old.read_by_user and new.user_id <> auth.uid() then
       raise exception 'You can only update read_by_user on your own messages';
     end if;
   end if;
@@ -243,9 +283,25 @@ begin
   if v_profile.id is null then
     raise exception 'Profile not found';
   end if;
+  if v_profile.deleted_at is not null or v_profile.disabled then
+    raise exception 'Account disabled';
+  end if;
 
   if p_qty is null or p_qty < 1 then
     raise exception 'Invalid quantity';
+  end if;
+
+  if p_address is null or length(btrim(p_address)) = 0 then
+    raise exception 'Delivery address is required';
+  end if;
+  if length(p_address) > 300 then
+    raise exception 'Delivery address must be 300 characters or fewer';
+  end if;
+  if p_notes is not null and length(p_notes) > 500 then
+    raise exception 'Delivery notes must be 500 characters or fewer';
+  end if;
+  if p_payment not in ('Cash on Delivery', 'GCash', 'Maya', 'Bank Transfer (BDO/BPI/Metrobank)') then
+    raise exception 'Invalid payment method';
   end if;
 
   select * into v_product from public.products where id = p_product_id for update;
@@ -266,7 +322,7 @@ begin
     qty, total, payment, address, notes, status, delivery_status
   ) values (
     auth.uid(), v_profile.email, v_profile.nickname, v_product.id, v_product.name, v_product.season,
-    p_qty, v_product.price * p_qty, p_payment, p_address, coalesce(p_notes, ''),
+    p_qty, v_product.price * p_qty, p_payment, btrim(p_address), coalesce(p_notes, ''),
     'Pending', 'Preparing'
   )
   returning * into v_order;
@@ -296,7 +352,17 @@ begin
     raise exception 'Order not found';
   end if;
 
-  if p_status in ('Cancelled', 'Rejected') and v_order.status in ('Pending', 'Accepted') then
+  if v_order.status in ('Rejected', 'Cancelled', 'Completed') then
+    raise exception 'Order is already in a terminal state (%)', v_order.status;
+  end if;
+
+  if v_order.status = 'Pending' and p_status not in ('Accepted', 'Rejected', 'Cancelled') then
+    raise exception 'Invalid transition: Pending -> %', p_status;
+  elsif v_order.status = 'Accepted' and p_status not in ('Completed', 'Cancelled') then
+    raise exception 'Invalid transition: Accepted -> %', p_status;
+  end if;
+
+  if p_status in ('Rejected', 'Cancelled') and v_order.status in ('Pending', 'Accepted') then
     update public.products set stock = stock + v_order.qty where id = v_order.product_id;
   end if;
 
@@ -353,7 +419,44 @@ grant select, insert, update, delete on public.orders to authenticated;
 grant select, insert, update, delete on public.messages to authenticated;
 grant select, insert, update, delete on public.couriers to authenticated;
 
--- 7. Seed data -----------------------------------------------
+-- 8. Best-sellers function (security definer, for all authenticated users)
+
+create or replace function public.best_sellers(p_period text)
+returns table(product_name text, units bigint)
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_start timestamptz;
+begin
+  if p_period = 'daily' then
+    v_start := date_trunc('day', now());
+  elsif p_period = 'weekly' then
+    v_start := date_trunc('day', now() - interval '6 days');
+  elsif p_period = 'monthly' then
+    v_start := date_trunc('month', now());
+  elsif p_period = 'yearly' then
+    v_start := date_trunc('year', now());
+  else
+    raise exception 'Invalid period: %', p_period;
+  end if;
+
+  return query
+    select o.product_name, sum(o.qty)::bigint as units
+    from public.orders o
+    where o.status not in ('Rejected', 'Cancelled')
+      and o.created_at >= v_start
+    group by o.product_name
+    order by units desc
+    limit 5;
+end;
+$$;
+
+revoke all on function public.best_sellers(text) from public;
+grant execute on function public.best_sellers(text) to authenticated;
+
+-- 9. Seed data -----------------------------------------------
 
 do $$
 begin
