@@ -70,6 +70,7 @@
     </section>
   </main>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0"></script>
   <script src="js/config.js"></script>
   <script src="js/app.js"></script>
   <script>
@@ -87,12 +88,14 @@
       });
     });
 
-    document.getElementById('loginForm').addEventListener('submit', (e) => {
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const email = document.getElementById('loginEmail').value.trim();
       const password = document.getElementById('loginPassword').value;
-      const res = PetalApp.login(email, password);
       const msg = document.getElementById('loginMsg');
+      msg.className = 'msg';
+      msg.textContent = 'Logging in...';
+      const res = await PetalApp.login(email, password);
       if (!res.ok) {
         msg.className = 'msg error';
         msg.textContent = res.message;
@@ -115,7 +118,7 @@
         password: document.getElementById('suPassword').value
       };
       const msg = document.getElementById('signupMsg');
-      msg.className = 'msg success';
+      msg.className = 'msg';
       msg.textContent = 'Creating your account...';
       const res = await PetalApp.signup(data);
       if (!res.ok) {
@@ -123,6 +126,12 @@
         msg.textContent = res.message;
         return;
       }
+      if (res.needsConfirm) {
+        msg.className = 'msg success';
+        msg.textContent = res.message;
+        return;
+      }
+      msg.className = 'msg success';
       msg.textContent = 'Account created. Redirecting to your dashboard...';
       window.location.href = 'dashboard.html';
     });

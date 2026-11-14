@@ -1,4 +1,2 @@
-window.PETAL_CONFIG = {
-  supabaseUrl: 'https://wamrvqljzagbckzajoai.supabase.co',
-  supabaseAnonKey: 'sb_publishable_Em6SxKCYyIIHC7UBC0fhMQ_iXDvgppl'
-};
+const SUPABASE_URL = 'PASTE_URL_HERE';
+const SUPABASE_ANON_KEY = 'PASTE_ANON_KEY_HERE';

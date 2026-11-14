@@ -293,6 +293,7 @@
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0"></script>
   <script src="js/config.js"></script>
   <script src="js/app.js"></script>
   <script>
@@ -300,6 +301,15 @@
     await PetalApp.init();
     const session = PetalApp.requireAuth('admin');
     if (!session) throw new Error('Unauthorized');
+    let couriers = [];
+    let reportCustomers = [];
+
+    async function refreshAll() {
+      await PetalApp.loadAll();
+      await PetalApp.refreshCouriers();
+      couriers = PetalApp.getCouriers();
+      await refreshReports();
+    }
 
     const sidebar = document.getElementById('sidebar');
     document.getElementById('menuBtn').addEventListener('click', () => sidebar.classList.toggle('open'));
@@ -322,7 +332,7 @@
       : (p.stock <= PetalApp.LOW_STOCK_THRESHOLD
         ? '<span class="badge-status st-low">Low stock</span>'
         : '<span class="badge-status st-in">In stock</span>');
-    const orderTotal = o => (o.total || 0) + (o.deliveryFee || 0);
+    const orderTotal = o => (o.total || 0) + (o.delivery_fee || 0);
 
     function activeOrders() {
       return PetalApp.getOrders().filter(o => !['Rejected', 'Cancelled'].includes(o.status));
@@ -331,22 +341,21 @@
     /* ---------- 1. Overview ---------- */
     function renderOverview() {
       const orders = PetalApp.getOrders();
-      const users = PetalApp.getUsers();
       const products = PetalApp.getProducts();
       const revenue = orders.reduce((s, o) => s + PetalApp.revenueOf(o), 0);
       document.getElementById('ovSales').textContent = PetalApp.formatMoney(revenue);
       document.getElementById('ovOrders').textContent = orders.length;
       document.getElementById('ovPending').textContent = orders.filter(o => o.status === 'Pending').length;
       document.getElementById('ovCompleted').textContent = orders.filter(o => o.status === 'Completed').length;
-      document.getElementById('ovCustomers').textContent = users.length;
+      document.getElementById('ovCustomers').textContent = reportCustomers.length;
 
       const low = products.filter(p => p.stock <= PetalApp.LOW_STOCK_THRESHOLD);
       document.getElementById('ovLowStock').innerHTML = low.length
-        ? low.map(p => `<div class="low-row">${stockBadge(p)}<span>${p.name}</span><strong>${p.stock} left</strong></div>`).join('')
+        ? low.map(p => `<div class="low-row">${stockBadge(p)}<span>${PetalApp.escapeHtml(p.name)}</span><strong>${p.stock} left</strong></div>`).join('')
         : '<p class="chart-empty">All products are well stocked.</p>';
 
       document.getElementById('ovRecent').innerHTML = orders.slice(0, 8).map(o => `
-        <tr><td>${o.id}</td><td>${o.userName}</td><td>${PetalApp.formatMoney(orderTotal(o))}</td><td>${statusBadge(o.status)}</td></tr>
+        <tr><td>${PetalApp.escapeHtml(o.id)}</td><td>${PetalApp.escapeHtml(o.user_name || '')}</td><td>${PetalApp.formatMoney(orderTotal(o))}</td><td>${statusBadge(o.status)}</td></tr>
       `).join('') || '<tr><td colspan="4">No orders yet.</td></tr>';
     }
 
@@ -365,10 +374,13 @@
       });
     });
 
-    document.getElementById('addForm').addEventListener('submit', (e) => {
+    document.getElementById('addForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const imageText = document.getElementById('pImage').value.trim();
-      PetalApp.addProduct({
+      const msg = document.getElementById('addMsg');
+      msg.className = 'msg';
+      msg.textContent = 'Saving product...';
+      const res = await PetalApp.saveProduct({
         name: document.getElementById('pName').value.trim(),
         price: parseFloat(document.getElementById('pPrice').value),
         season: document.getElementById('pSeason').value,
@@ -377,11 +389,13 @@
         description: document.getElementById('pDesc').value.trim(),
         available: document.getElementById('pAvailable').checked
       });
+      if (!res.ok) { msg.className = 'msg error'; msg.textContent = res.message || 'Could not save product.'; return; }
       e.target.reset();
       addImageData = '';
       document.getElementById('pAvailable').checked = true;
-      document.getElementById('addMsg').className = 'msg success';
-      document.getElementById('addMsg').textContent = 'Product added.';
+      msg.className = 'msg success';
+      msg.textContent = 'Product added.';
+      await refreshAll();
       renderAll();
     });
 
@@ -389,37 +403,47 @@
       const products = PetalApp.getProducts();
       document.getElementById('inventoryBody').innerHTML = products.map(p => `
         <tr>
-          <td><img class="thumb" src="${encodeURI(p.image || PetalApp.FALLBACK_IMAGE)}" alt="${p.name}" onerror="this.onerror=null;this.src='${PetalApp.FALLBACK_IMAGE}'"></td>
-          <td>${p.name}</td>
-          <td>${p.season}</td>
-          <td><input type="number" min="0" step="0.01" value="${p.price}" style="max-width:120px" onchange="updatePrice('${p.id}',this.value)"></td>
-          <td><input type="number" min="0" step="1" value="${p.stock}" style="max-width:100px" onchange="updateStock('${p.id}',this.value)"></td>
-          <td><button class="btn btn-sm ${p.available ? '' : 'btn-outline'}" onclick="toggleAvail('${p.id}')">${p.available ? 'Available' : 'Not available'}</button></td>
-          <td>${p.description || ''}</td>
+          <td><img class="thumb" src="${encodeURI(p.image || PetalApp.FALLBACK_IMAGE)}" alt="${PetalApp.escapeHtml(p.name)}" onerror="this.onerror=null;this.src='${PetalApp.FALLBACK_IMAGE}'"></td>
+          <td>${PetalApp.escapeHtml(p.name)}</td>
+          <td>${PetalApp.escapeHtml(p.season || '')}</td>
+          <td><input type="number" min="0" step="0.01" value="${p.price}" style="max-width:120px" onchange="updatePrice(this.dataset.id,this.value)" data-id="${PetalApp.escapeHtml(p.id)}"></td>
+          <td><input type="number" min="0" step="1" value="${p.stock}" style="max-width:100px" onchange="updateStock(this.dataset.id,this.value)" data-id="${PetalApp.escapeHtml(p.id)}"></td>
+          <td><button class="btn btn-sm ${p.available ? '' : 'btn-outline'}" onclick="toggleAvail(this.dataset.id)" data-id="${PetalApp.escapeHtml(p.id)}">${p.available ? 'Available' : 'Not available'}</button></td>
+          <td>${PetalApp.escapeHtml(p.description || '')}</td>
           <td class="row">
-            <button class="btn btn-sm btn-outline" onclick="openEdit('${p.id}')">Edit</button>
-            <button class="btn btn-sm btn-danger" onclick="removeProduct('${p.id}')">Delete</button>
+            <button class="btn btn-sm btn-outline" onclick="openEdit(this.dataset.id)" data-id="${PetalApp.escapeHtml(p.id)}">Edit</button>
+            <button class="btn btn-sm btn-danger" onclick="removeProduct(this.dataset.id)" data-id="${PetalApp.escapeHtml(p.id)}">Delete</button>
           </td>
         </tr>
       `).join('') || '<tr><td colspan="8">No products.</td></tr>';
     }
 
-    window.updatePrice = (id, value) => {
+    window.updatePrice = async (id, value) => {
       if (value === null || value === '') return;
-      PetalApp.updateProduct(id, { price: parseFloat(value) || 0 });
+      const res = await PetalApp.saveProduct({ id, price: parseFloat(value) || 0 });
+      if (!res.ok) { alert(res.message || 'Could not update price.'); return; }
       renderInventory();
     };
-    window.updateStock = (id, value) => {
+    window.updateStock = async (id, value) => {
       if (value === null || value === '') return;
-      PetalApp.updateProduct(id, { stock: parseInt(value, 10) || 0 });
+      const res = await PetalApp.saveProduct({ id, stock: parseInt(value, 10) || 0 });
+      if (!res.ok) { alert(res.message || 'Could not update stock.'); return; }
       renderInventory();
     };
-    window.toggleAvail = (id) => { PetalApp.toggleAvailability(id); renderInventory(); };
-    window.removeProduct = (id) => {
+    window.toggleAvail = async (id) => {
+      const p = PetalApp.getProducts().find(x => x.id === id);
+      if (!p) return;
+      const res = await PetalApp.setAvailability(id, !p.available);
+      if (!res.ok) { alert(res.message || 'Could not update availability.'); return; }
+      renderInventory();
+    };
+    window.removeProduct = async (id) => {
       const p = PetalApp.getProducts().find(x => x.id === id);
       if (!p) return;
       if (!confirm(`Delete "${p.name}"? Existing orders keep their record.`)) return;
-      PetalApp.deleteProduct(id);
+      const res = await PetalApp.deleteProduct(id);
+      if (!res.ok) { alert(res.message || 'Could not delete product.'); return; }
+      await refreshAll();
       renderAll();
     };
 
@@ -454,10 +478,14 @@
       });
     });
     document.getElementById('eCancel').addEventListener('click', () => document.getElementById('editModal').classList.add('hidden'));
-    document.getElementById('editForm').addEventListener('submit', (e) => {
+    document.getElementById('editForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const imageText = document.getElementById('eImage').value.trim();
-      PetalApp.updateProduct(document.getElementById('eId').value, {
+      const msg = document.getElementById('editMsg');
+      msg.className = 'msg';
+      msg.textContent = 'Saving changes...';
+      const res = await PetalApp.saveProduct({
+        id: document.getElementById('eId').value,
         name: document.getElementById('eName').value.trim(),
         price: parseFloat(document.getElementById('ePrice').value),
         season: document.getElementById('eSeason').value,
@@ -466,7 +494,9 @@
         description: document.getElementById('eDesc').value.trim(),
         available: document.getElementById('eAvailable').checked
       });
+      if (!res.ok) { msg.className = 'msg error'; msg.textContent = res.message || 'Could not save changes.'; return; }
       document.getElementById('editModal').classList.add('hidden');
+      await refreshAll();
       renderAll();
     });
 
@@ -479,26 +509,28 @@
       const orders = PetalApp.getOrders().filter(o => filter === 'All' || o.status === filter);
       document.getElementById('ordersBody').innerHTML = orders.map(o => `
         <tr>
-          <td>${o.id}</td>
-          <td>${o.userName}<br><span class="muted">${o.userEmail}</span></td>
-          <td>${o.productName}</td><td>${o.qty}</td>
-          <td>${PetalApp.formatMoney(orderTotal(o))}</td><td>${o.payment}</td>
+          <td>${PetalApp.escapeHtml(o.id)}</td>
+          <td>${PetalApp.escapeHtml(o.user_name || '')}<br><span class="muted">${PetalApp.escapeHtml(o.user_email || '')}</span></td>
+          <td>${PetalApp.escapeHtml(o.product_name || '')}</td><td>${o.qty}</td>
+          <td>${PetalApp.formatMoney(orderTotal(o))}</td><td>${PetalApp.escapeHtml(o.payment || '')}</td>
           <td>${statusBadge(o.status)}</td>
-          <td>${o.deliveryPersonnel ? o.deliveryPersonnel + ' — ' : ''}${o.deliveryStatus || 'Preparing'}</td>
-          <td>${new Date(o.date).toLocaleString()}</td>
+          <td>${o.delivery_personnel ? PetalApp.escapeHtml(o.delivery_personnel) + ' — ' : ''}${PetalApp.escapeHtml(o.delivery_status || 'Preparing')}</td>
+          <td>${new Date(o.created_at).toLocaleString()}</td>
           <td class="row">
-            ${o.status === 'Pending' ? `<button class="btn btn-sm" onclick="setStatus('${o.id}','Accepted')">Accept</button>
-              <button class="btn btn-sm btn-outline" onclick="setStatus('${o.id}','Rejected')">Reject</button>` : ''}
-            ${o.status === 'Accepted' ? `<button class="btn btn-sm" onclick="setStatus('${o.id}','Completed')">Complete</button>` : ''}
-            ${PetalApp.ACTIVE_STATUSES.includes(o.status) ? `<button class="btn btn-sm btn-danger" onclick="setStatus('${o.id}','Cancelled')">Cancel</button>` : ''}
-            <button class="btn btn-sm btn-outline" onclick="viewOrder('${o.id}')">View</button>
+            ${o.status === 'Pending' ? `<button class="btn btn-sm" onclick="setStatus(this.dataset.id,'Accepted')" data-id="${PetalApp.escapeHtml(o.id)}">Accept</button>
+              <button class="btn btn-sm btn-outline" onclick="setStatus(this.dataset.id,'Rejected')" data-id="${PetalApp.escapeHtml(o.id)}">Reject</button>` : ''}
+            ${o.status === 'Accepted' ? `<button class="btn btn-sm" onclick="setStatus(this.dataset.id,'Completed')" data-id="${PetalApp.escapeHtml(o.id)}">Complete</button>` : ''}
+            ${PetalApp.ACTIVE_STATUSES.includes(o.status) ? `<button class="btn btn-sm btn-danger" onclick="setStatus(this.dataset.id,'Cancelled')" data-id="${PetalApp.escapeHtml(o.id)}">Cancel</button>` : ''}
+            <button class="btn btn-sm btn-outline" onclick="viewOrder(this.dataset.id)" data-id="${PetalApp.escapeHtml(o.id)}">View</button>
           </td>
         </tr>
       `).join('') || '<tr><td colspan="10">No orders for this filter.</td></tr>';
     }
 
-    window.setStatus = (id, status) => {
-      PetalApp.setOrderStatus(id, status);
+    window.setStatus = async (id, status) => {
+      const res = await PetalApp.setOrderStatus(id, status);
+      if (!res.ok) { alert(res.message || 'Could not update order status.'); return; }
+      await refreshAll();
       renderAll();
     };
 
@@ -506,19 +538,19 @@
       const o = PetalApp.getOrders().find(x => x.id === id);
       if (!o) return;
       document.getElementById('orderDetails').innerHTML = `
-        <div><strong>Order ID:</strong> ${o.id}</div>
+        <div><strong>Order ID:</strong> ${PetalApp.escapeHtml(o.id)}</div>
         <div><strong>Status:</strong> ${statusBadge(o.status)}</div>
-        <div><strong>Customer:</strong> ${o.userName} (${o.userEmail})</div>
-        <div><strong>Product:</strong> ${o.productName} x ${o.qty}</div>
+        <div><strong>Customer:</strong> ${PetalApp.escapeHtml(o.user_name || '')} (${PetalApp.escapeHtml(o.user_email || '')})</div>
+        <div><strong>Product:</strong> ${PetalApp.escapeHtml(o.product_name || '')} x ${o.qty}</div>
         <div><strong>Item total:</strong> ${PetalApp.formatMoney(o.total)}</div>
-        <div><strong>Delivery fee:</strong> ${PetalApp.formatMoney(o.deliveryFee || 0)}</div>
+        <div><strong>Delivery fee:</strong> ${PetalApp.formatMoney(o.delivery_fee || 0)}</div>
         <div><strong>Order total:</strong> ${PetalApp.formatMoney(orderTotal(o))}</div>
-        <div><strong>Payment:</strong> ${o.payment}</div>
-        <div><strong>Delivery address:</strong> ${o.address || '—'}</div>
-        <div><strong>Delivery personnel:</strong> ${o.deliveryPersonnel || 'Not assigned'}</div>
-        <div><strong>Delivery status:</strong> ${o.deliveryStatus || 'Preparing'}</div>
-        <div><strong>Notes:</strong> ${o.notes || '—'}</div>
-        <div><strong>Ordered at:</strong> ${new Date(o.date).toLocaleString()}</div>
+        <div><strong>Payment:</strong> ${PetalApp.escapeHtml(o.payment || '')}</div>
+        <div><strong>Delivery address:</strong> ${PetalApp.escapeHtml(o.address || '—')}</div>
+        <div><strong>Delivery personnel:</strong> ${PetalApp.escapeHtml(o.delivery_personnel || 'Not assigned')}</div>
+        <div><strong>Delivery status:</strong> ${PetalApp.escapeHtml(o.delivery_status || 'Preparing')}</div>
+        <div><strong>Notes:</strong> ${PetalApp.escapeHtml(o.notes || '—')}</div>
+        <div><strong>Ordered at:</strong> ${new Date(o.created_at).toLocaleString()}</div>
       `;
       document.getElementById('orderModal').classList.remove('hidden');
     };
@@ -533,117 +565,186 @@
       document.getElementById('prodCount').textContent = products.length;
       document.getElementById('stocksBody').innerHTML = products.map(p => `
         <tr>
-          <td><img class="thumb" src="${encodeURI(p.image || PetalApp.FALLBACK_IMAGE)}" alt="${p.name}" onerror="this.onerror=null;this.src='${PetalApp.FALLBACK_IMAGE}'"></td>
-          <td>${p.name}</td><td>${p.season}</td>
+          <td><img class="thumb" src="${encodeURI(p.image || PetalApp.FALLBACK_IMAGE)}" alt="${PetalApp.escapeHtml(p.name)}" onerror="this.onerror=null;this.src='${PetalApp.FALLBACK_IMAGE}'"></td>
+          <td>${PetalApp.escapeHtml(p.name)}</td><td>${PetalApp.escapeHtml(p.season || '')}</td>
           <td>${stockBadge(p)}</td>
           <td><strong>${p.stock}</strong></td>
           <td class="row">
-            <input type="number" min="0" step="1" value="${p.stock}" style="max-width:90px" id="stock_${p.id}">
-            <button class="btn btn-sm" onclick="saveStock('${p.id}')">Update</button>
+            <input type="number" min="0" step="1" value="${p.stock}" style="max-width:90px" id="stock_${PetalApp.escapeHtml(p.id)}">
+            <button class="btn btn-sm" onclick="saveStock(this.dataset.id)" data-id="${PetalApp.escapeHtml(p.id)}">Update</button>
           </td>
           <td class="row">
-            <button class="btn btn-sm btn-outline" onclick="adjustStock('${p.id}',-1)">-1</button>
-            <button class="btn btn-sm btn-outline" onclick="adjustStock('${p.id}',1)">+1</button>
-            <button class="btn btn-sm btn-danger" onclick="markOut('${p.id}')">Mark out of stock</button>
+            <button class="btn btn-sm btn-outline" onclick="adjustStock(this.dataset.id,-1)" data-id="${PetalApp.escapeHtml(p.id)}">-1</button>
+            <button class="btn btn-sm btn-outline" onclick="adjustStock(this.dataset.id,1)" data-id="${PetalApp.escapeHtml(p.id)}">+1</button>
+            <button class="btn btn-sm btn-danger" onclick="markOut(this.dataset.id)" data-id="${PetalApp.escapeHtml(p.id)}">Mark out of stock</button>
           </td>
         </tr>
       `).join('') || '<tr><td colspan="7">No products.</td></tr>';
     }
-    window.saveStock = (id) => {
+    window.saveStock = async (id) => {
       const el = document.getElementById('stock_' + id);
-      PetalApp.setStock(id, el.value);
+      const res = await PetalApp.setStock(id, el.value);
+      if (!res.ok) { alert(res.message || 'Could not update stock.'); return; }
       renderStocks();
     };
-    window.adjustStock = (id, delta) => {
+    window.adjustStock = async (id, delta) => {
       const p = PetalApp.getProducts().find(x => x.id === id);
       if (!p) return;
-      PetalApp.setStock(id, p.stock + delta);
+      const res = await PetalApp.setStock(id, p.stock + delta);
+      if (!res.ok) { alert(res.message || 'Could not update stock.'); return; }
       renderStocks();
     };
-    window.markOut = (id) => { PetalApp.setStock(id, 0); renderStocks(); };
+    window.markOut = async (id) => {
+      const res = await PetalApp.setStock(id, 0);
+      if (!res.ok) { alert(res.message || 'Could not update stock.'); return; }
+      renderStocks();
+    };
 
     /* ---------- 5. Delivery Management ---------- */
     function renderDelivery() {
       const orders = activeOrders();
-      const couriers = PetalApp.getCouriers();
       document.getElementById('deliveryBody').innerHTML = orders.map(o => `
         <tr>
-          <td>${o.id}</td>
-          <td>${o.userName}</td>
-          <td style="max-width:220px">${o.address || '—'}</td>
+          <td>${PetalApp.escapeHtml(o.id)}</td>
+          <td>${PetalApp.escapeHtml(o.user_name || '')}</td>
+          <td style="max-width:220px">${PetalApp.escapeHtml(o.address || '—')}</td>
           <td>
-            <select id="courier_${o.id}">
+            <select id="courier_${PetalApp.escapeHtml(o.id)}">
               <option value="">Unassigned</option>
-              ${couriers.map(c => `<option value="${c.name}" ${o.deliveryPersonnel === c.name ? 'selected' : ''}>${c.name}</option>`).join('')}
+              ${couriers.map(c => `<option value="${PetalApp.escapeHtml(c.id)}" ${o.delivery_personnel === c.name ? 'selected' : ''}>${PetalApp.escapeHtml(c.name)}</option>`).join('')}
             </select>
           </td>
-          <td><input type="number" min="0" step="0.01" value="${o.deliveryFee || 0}" style="max-width:110px" id="fee_${o.id}"></td>
+          <td><input type="number" min="0" step="0.01" value="${o.delivery_fee || 0}" style="max-width:110px" id="fee_${PetalApp.escapeHtml(o.id)}"></td>
           <td>
-            <select id="dstatus_${o.id}">
-              ${PetalApp.DELIVERY_STATUS.map(s => `<option value="${s}" ${(o.deliveryStatus || 'Preparing') === s ? 'selected' : ''}>${s}</option>`).join('')}
+            <select id="dstatus_${PetalApp.escapeHtml(o.id)}">
+              ${PetalApp.DELIVERY_STATUS.map(s => `<option value="${s}" ${(o.delivery_status || 'Preparing') === s ? 'selected' : ''}>${s}</option>`).join('')}
             </select>
           </td>
-          <td><button class="btn btn-sm" onclick="saveDelivery('${o.id}')">Save</button></td>
+          <td><button class="btn btn-sm" onclick="saveDelivery(this.dataset.id)" data-id="${PetalApp.escapeHtml(o.id)}">Save</button></td>
         </tr>
       `).join('') || '<tr><td colspan="7">No active orders to deliver.</td></tr>';
     }
-    window.saveDelivery = (id) => {
-      PetalApp.saveDelivery(id, {
-        personnel: document.getElementById('courier_' + id).value,
+    window.saveDelivery = async (id) => {
+      const res = await PetalApp.saveDelivery(id, {
+        courierId: document.getElementById('courier_' + id).value,
         fee: document.getElementById('fee_' + id).value,
         status: document.getElementById('dstatus_' + id).value
       });
+      if (!res.ok) { alert(res.message || 'Could not save delivery details.'); return; }
+      await refreshAll();
+      renderAll();
+    };
+
+    /* ---------- Courier management (Delivery page) ---------- */
+    const addCourierRow = document.createElement('div');
+    addCourierRow.className = 'row';
+    addCourierRow.style.cssText = 'margin-bottom:1rem; gap:.5rem; align-items:center;';
+    addCourierRow.innerHTML = `
+      <input id="courierName" placeholder="Courier name" style="max-width:220px">
+      <button class="btn btn-sm" id="addCourierBtn" type="button">Add courier</button>
+      <div id="courierMsg" class="msg" style="margin:0"></div>
+    `;
+    const deliverySection = document.getElementById('delivery');
+    const deliveryTable = deliverySection.querySelector('.table-wrap');
+    deliverySection.insertBefore(addCourierRow, deliveryTable);
+    let courierListWrap = document.createElement('div');
+    courierListWrap.id = 'courierList';
+    courierListWrap.style.cssText = 'margin-bottom:1rem; display:flex; flex-wrap:wrap; gap:.5rem;';
+    deliverySection.insertBefore(courierListWrap, deliveryTable);
+
+    function renderCouriers() {
+      const wrap = document.getElementById('courierList');
+      wrap.innerHTML = couriers.map(c => `
+        <span class="badge" style="display:inline-flex; align-items:center; gap:.4rem; padding:.35rem .6rem;">
+          ${PetalApp.escapeHtml(c.name)}
+          <button class="btn btn-sm btn-danger" style="padding:.1rem .4rem;" onclick="removeCourier(this.dataset.id)" data-id="${PetalApp.escapeHtml(c.id)}" title="Remove courier">×</button>
+        </span>
+      `).join('') || '<span class="muted">No couriers yet. Add one above.</span>';
+    }
+    document.getElementById('addCourierBtn').addEventListener('click', async () => {
+      const input = document.getElementById('courierName');
+      const msg = document.getElementById('courierMsg');
+      const res = await PetalApp.addCourier(input.value);
+      if (!res.ok) { msg.className = 'msg error'; msg.textContent = res.message || 'Could not add courier.'; return; }
+      input.value = '';
+      msg.className = 'msg success';
+      msg.textContent = 'Courier added.';
+      await refreshAll();
+      renderAll();
+    });
+    window.removeCourier = async (id) => {
+      const res = await PetalApp.removeCourier(id);
+      if (!res.ok) { alert(res.message || 'Could not remove courier.'); return; }
+      await refreshAll();
       renderAll();
     };
 
     /* ---------- 6. Customer Management ---------- */
+    async function refreshReports() {
+      const { data, error } = await PetalApp.sb.from('profiles').select('*').order('created_at', { ascending: false });
+      if (error) { console.warn('Petal-PH: customer load failed', error); return; }
+      reportCustomers = data || [];
+    }
+
     function renderCustomers() {
-      const users = PetalApp.getUsers();
       const orders = PetalApp.getOrders();
-      const withOrders = users.filter(u => orders.some(o => o.userId === u.id)).length;
-      document.getElementById('custCount').textContent = users.length;
+      const withOrders = reportCustomers.filter(u => orders.some(o => o.user_id === u.id)).length;
+      document.getElementById('custCount').textContent = reportCustomers.length;
       document.getElementById('custWithOrders').textContent = withOrders;
-      document.getElementById('customersBody').innerHTML = users.map(u => {
-        const mine = orders.filter(o => o.userId === u.id);
+      document.getElementById('customersBody').innerHTML = reportCustomers.map(u => {
+        const mine = orders.filter(o => o.user_id === u.id);
         const spent = mine.reduce((s, o) => s + PetalApp.revenueOf(o), 0);
         return `
         <tr>
-          <td>${u.avatar ? `<img class="avatar" src="${u.avatar}" alt="${u.nickname}">` : `<span class="avatar avatar-fallback">${(u.nickname || 'U').charAt(0).toUpperCase()}</span>`}</td>
-          <td>${u.nickname}</td><td>${u.email}</td><td>${u.status}</td>
-          <td>${u.anniversary}</td><td>${u.phone}</td><td>${u.location}</td>
+          <td>${u.avatar ? `<img class="avatar" src="${u.avatar}" alt="${PetalApp.escapeHtml(u.nickname || '')}">` : `<span class="avatar avatar-fallback">${(u.nickname || 'U').charAt(0).toUpperCase()}</span>`}</td>
+          <td>${PetalApp.escapeHtml(u.nickname || '')}</td><td>${PetalApp.escapeHtml(u.email || '')}</td><td>${PetalApp.escapeHtml(u.status || '')}</td>
+          <td>${PetalApp.escapeHtml(u.anniversary || '—')}</td><td>${PetalApp.escapeHtml(u.phone || '')}</td><td>${PetalApp.escapeHtml(u.location || '')}</td>
           <td>${mine.length}</td><td>${PetalApp.formatMoney(spent)}</td>
-          <td>${new Date(u.createdAt).toLocaleDateString()}</td>
+          <td>${u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}</td>
           <td class="row">
-            <button class="btn btn-sm btn-outline" onclick="viewHistory('${u.id}')">History</button>
-            <button class="btn btn-sm btn-danger" onclick="removeCustomer('${u.id}')">Delete</button>
+            <button class="btn btn-sm btn-outline" onclick="viewHistory(this.dataset.id)" data-id="${PetalApp.escapeHtml(u.id)}">History</button>
+            <button class="btn btn-sm btn-danger" onclick="removeCustomer(this.dataset.id)" data-id="${PetalApp.escapeHtml(u.id)}">Delete</button>
           </td>
         </tr>`;
       }).join('') || '<tr><td colspan="11">No registered customers.</td></tr>';
     }
 
     window.viewHistory = (userId) => {
-      const user = PetalApp.getUsers().find(u => u.id === userId);
+      const user = reportCustomers.find(u => u.id === userId);
       if (!user) return;
-      const mine = PetalApp.getOrders().filter(o => o.userId === userId);
-      document.getElementById('historyTitle').textContent = `Purchase history — ${user.nickname}`;
+      const mine = PetalApp.getOrders().filter(o => o.user_id === userId);
+      document.getElementById('historyTitle').textContent = `Purchase history — ${user.nickname || ''}`;
       document.getElementById('historyBody').innerHTML = mine.map(o => `
-        <tr><td>${o.id}</td><td>${o.productName}</td><td>${o.qty}</td><td>${PetalApp.formatMoney(orderTotal(o))}</td>
-        <td>${o.payment}</td><td>${statusBadge(o.status)}</td><td>${new Date(o.date).toLocaleString()}</td></tr>
+        <tr><td>${PetalApp.escapeHtml(o.id)}</td><td>${PetalApp.escapeHtml(o.product_name || '')}</td><td>${o.qty}</td><td>${PetalApp.formatMoney(orderTotal(o))}</td>
+        <td>${PetalApp.escapeHtml(o.payment || '')}</td><td>${statusBadge(o.status)}</td><td>${new Date(o.created_at).toLocaleString()}</td></tr>
       `).join('') || '<tr><td colspan="7">No orders yet.</td></tr>';
       document.getElementById('historyModal').classList.remove('hidden');
     };
     document.getElementById('historyClose').addEventListener('click', () => document.getElementById('historyModal').classList.add('hidden'));
 
-    window.removeCustomer = (userId) => {
-      const user = PetalApp.getUsers().find(u => u.id === userId);
+    window.removeCustomer = async (userId) => {
+      const user = reportCustomers.find(u => u.id === userId);
       if (!user) return;
-      if (!confirm(`Delete the account of "${user.nickname}"? Their order records will remain.`)) return;
-      PetalApp.deleteCustomer(userId);
+      if (!confirm(`Delete the account of "${user.nickname || ''}"? Their messages and orders will also be removed.`)) return;
+      const res = await PetalApp.deleteCustomer(userId);
+      if (!res.ok) { alert(res.message || 'Could not delete customer.'); return; }
+      await refreshAll();
       renderAll();
     };
 
     /* ---------- Messages ---------- */
     let currentUserId = null;
+    let customerProfiles = [];
+
+    async function refreshCustomerProfiles() {
+      const { data, error } = await PetalApp.sb.from('profiles').select('*').order('created_at', { ascending: false });
+      if (error) { console.warn('Petal-PH: conversation profiles failed', error); return; }
+      customerProfiles = data || [];
+    }
+
+    function profileOf(userId) {
+      return customerProfiles.find(p => p.id === userId) || null;
+    }
 
     function fmtTime(iso) {
       const d = new Date(iso);
@@ -660,16 +761,18 @@
       badge.textContent = unread > 9 ? '9+' : unread;
       badge.classList.toggle('hidden', unread === 0);
       document.getElementById('convList').innerHTML = convs.map(c => {
-        const avatar = c.user.avatar
-          ? `<img class="avatar" src="${c.user.avatar}" alt="${c.user.nickname}">`
-          : `<span class="avatar avatar-fallback">${(c.user.nickname || 'U').charAt(0).toUpperCase()}</span>`;
-        const last = c.last ? `${c.last.from === 'admin' ? 'You: ' : ''}${c.last.text}` : 'No messages';
+        const p = profileOf(c.userId);
+        const nickname = p ? (p.nickname || '') : 'Customer';
+        const avatar = p && p.avatar
+          ? `<img class="avatar" src="${p.avatar}" alt="${PetalApp.escapeHtml(nickname)}">`
+          : `<span class="avatar avatar-fallback">${(nickname || 'U').charAt(0).toUpperCase()}</span>`;
+        const last = c.last ? `${c.last.sender === 'admin' ? 'You: ' : ''}${PetalApp.escapeHtml(c.last.body || '')}` : 'No messages';
         return `
-        <button class="conv-item ${currentUserId === c.user.id ? 'active' : ''}" onclick="openConversation('${c.user.id}')">
+        <button class="conv-item ${currentUserId === c.userId ? 'active' : ''}" onclick="openConversation(this.dataset.id)" data-id="${PetalApp.escapeHtml(c.userId)}">
           ${avatar}
           <div class="conv-info">
-            <div class="conv-name">${c.user.nickname}</div>
-            <div class="conv-last">${last.replace(/</g, '&lt;')}</div>
+            <div class="conv-name">${PetalApp.escapeHtml(nickname)}</div>
+            <div class="conv-last">${last}</div>
           </div>
           ${c.unread ? `<span class="conv-badge">${c.unread}</span>` : ''}
         </button>`;
@@ -684,45 +787,54 @@
         box.innerHTML = '<div class="chat-empty">Choose a customer on the left to view the conversation.</div>';
         return;
       }
-      const user = PetalApp.getUsers().find(u => u.id === currentUserId);
-      head.textContent = user ? `Chat with ${user.nickname}` : 'Conversation';
-      const msgs = PetalApp.getMessages().filter(m => m.userId === currentUserId);
+      const p = profileOf(currentUserId);
+      head.textContent = p ? `Chat with ${p.nickname || 'Customer'}` : 'Conversation';
+      const msgs = PetalApp.getMessages().filter(m => m.user_id === currentUserId);
       box.innerHTML = msgs.map(m => `
-        <div class="msg-row ${m.from === 'admin' ? 'mine' : 'them'}">
-          <div class="bubble">${m.text.replace(/</g, '&lt;')}<span class="time">${fmtTime(m.date)}</span></div>
+        <div class="msg-row ${m.sender === 'admin' ? 'mine' : 'them'}">
+          <div class="bubble">${PetalApp.escapeHtml(m.body)}<span class="time">${fmtTime(m.created_at)}</span></div>
         </div>
       `).join('') || '<div class="chat-empty">No messages in this conversation yet.</div>';
       box.scrollTop = box.scrollHeight;
     }
 
-    window.openConversation = (userId) => {
+    window.openConversation = async (userId) => {
       currentUserId = userId;
-      PetalApp.markRead(userId, 'admin');
+      await PetalApp.markRead(userId, 'admin');
+      await refreshAll();
       renderConversations();
       renderAdminChat();
     };
 
-    document.getElementById('adminChatForm').addEventListener('submit', (e) => {
+    document.getElementById('adminChatForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       if (!currentUserId) return;
       const input = document.getElementById('adminChatText');
       if (!input.value.trim()) return;
-      PetalApp.sendMessage(currentUserId, 'admin', input.value);
+      const res = await PetalApp.sendMessage(currentUserId, 'admin', input.value);
+      if (!res.ok) { alert(res.message || 'Could not send message.'); return; }
       input.value = '';
+      await refreshAll();
       renderConversations();
       renderAdminChat();
     });
 
     function renderMessages() { renderConversations(); renderAdminChat(); }
 
-    setInterval(() => {
-      if (!document.getElementById('messages').classList.contains('active')) {
+    setInterval(async () => {
+      try {
+        if (!document.getElementById('messages').classList.contains('active')) {
+          await refreshAll();
+          renderConversations();
+          return;
+        }
+        if (currentUserId) await PetalApp.markRead(currentUserId, 'admin');
+        await refreshAll();
         renderConversations();
-        return;
+        renderAdminChat();
+      } catch (err) {
+        console.warn('Petal-PH: messages poll failed', err);
       }
-      if (currentUserId) PetalApp.markRead(currentUserId, 'admin');
-      renderConversations();
-      renderAdminChat();
     }, 5000);
 
     /* ---------- 8. Reports and Analytics ---------- */
@@ -743,7 +855,7 @@
         days.push({ key: d.toDateString(), label: d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }), total: 0 });
       }
       valid.forEach(o => {
-        const key = new Date(o.date).toDateString();
+        const key = new Date(o.created_at).toDateString();
         const day = days.find(d => d.key === key);
         if (day) day.total += PetalApp.revenueOf(o);
       });
@@ -756,7 +868,7 @@
         months.push({ key: `${d.getFullYear()}-${d.getMonth()}`, label: d.toLocaleDateString('en-PH', { month: 'short', year: '2-digit' }), total: 0 });
       }
       valid.forEach(o => {
-        const d = new Date(o.date);
+        const d = new Date(o.created_at);
         const key = `${d.getFullYear()}-${d.getMonth()}`;
         const m = months.find(x => x.key === key);
         if (m) m.total += PetalApp.revenueOf(o);
@@ -792,6 +904,7 @@
 
     /* ---------- Render all ---------- */
     function renderAll() {
+      renderCouriers();
       renderOverview();
       renderInventory();
       renderOrders();
@@ -804,6 +917,8 @@
 
     const bestSellerChart = PetalApp.mountBestSellerChart(document.getElementById('bestSellerChart'));
     setInterval(() => { if (bestSellerChart) bestSellerChart.update(); }, 8000);
+    await refreshAll();
+    await refreshCustomerProfiles();
     renderAll();
     })();
   </script>

@@ -117,7 +117,7 @@
             </div>
             <div>
               <h3 style="margin:0 0 .25rem">Profile picture</h3>
-              <p class="muted" style="margin:0 0 .6rem">Upload a photo (JPG/PNG). It is resized and saved on this device.</p>
+              <p class="muted" style="margin:0 0 .6rem">Upload a photo (JPG/PNG). It is resized and saved on your account.</p>
               <input type="file" id="avatarInput" accept="image/*">
               <div class="row" style="margin-top:.5rem">
                 <button class="btn btn-sm" id="avatarSave" type="button">Save picture</button>
@@ -164,6 +164,7 @@
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0"></script>
   <script src="js/config.js"></script>
   <script src="js/app.js"></script>
   <script>
@@ -171,7 +172,11 @@
     await PetalApp.init();
     const session = PetalApp.requireAuth('user');
     if (!session) throw new Error('Unauthorized');
-    let user = PetalApp.getUsers().find(u => u.id === session.id);
+    let user = PetalApp.getMyProfile();
+    if (!user) {
+      await PetalApp.reload();
+      user = PetalApp.getMyProfile();
+    }
     if (!user) { PetalApp.logout(); }
 
     const sidebar = document.getElementById('sidebar');
@@ -196,10 +201,6 @@
       el.classList.remove('hidden');
     }
 
-    function avatarMarkup(size) {
-      if (user.avatar) return `<img class="avatar ${size}" src="${user.avatar}" alt="${user.nickname}">`;
-      return `<span class="avatar ${size} avatar-fallback">${(user.nickname || 'U').charAt(0).toUpperCase()}</span>`;
-    }
     function renderAvatar() {
       const img = document.getElementById('avatarImg');
       const fb = document.getElementById('avatarFallback');
@@ -212,7 +213,7 @@
         fb.classList.remove('hidden');
         fb.textContent = (user.nickname || 'U').charAt(0).toUpperCase();
       }
-      document.getElementById('userName').textContent = user.nickname;
+      document.getElementById('userName').textContent = user.nickname || '';
     }
     renderAvatar();
 
@@ -236,15 +237,15 @@
         return `
         <article class="card product">
           <div class="product-img-wrap">
-            <img class="product-img" src="${encodeURI(p.image || PetalApp.FALLBACK_IMAGE)}" alt="${p.name}" loading="lazy" onerror="this.onerror=null;this.src='${PetalApp.FALLBACK_IMAGE}'">
-            <span class="badge season-badge">${p.season}</span>
+            <img class="product-img" src="${encodeURI(p.image || PetalApp.FALLBACK_IMAGE)}" alt="${PetalApp.escapeHtml(p.name)}" loading="lazy" onerror="this.onerror=null;this.src='${PetalApp.FALLBACK_IMAGE}'">
+            <span class="badge season-badge">${PetalApp.escapeHtml(p.season || '')}</span>
             ${unavailable ? '<span class="badge out-badge">Unavailable</span>' : ''}
           </div>
-          <h3 style="margin:.2rem 0">${p.name}</h3>
-          <p class="muted" style="margin:0">${p.description || ''}</p>
+          <h3 style="margin:.2rem 0">${PetalApp.escapeHtml(p.name)}</h3>
+          <p class="muted" style="margin:0">${PetalApp.escapeHtml(p.description || '')}</p>
           <div class="price">${PetalApp.formatMoney(p.price)}</div>
           <div class="muted">Stock: ${p.stock}</div>
-          <button class="btn btn-sm" ${unavailable ? 'disabled' : ''} onclick="openOrder('${p.id}')">${!p.available ? 'Not available' : (p.stock <= 0 ? 'Out of stock' : 'Order now')}</button>
+          <button class="btn btn-sm" ${unavailable ? 'disabled' : ''} onclick="openOrder(this.dataset.id)" data-id="${PetalApp.escapeHtml(p.id)}">${!p.available ? 'Not available' : (p.stock <= 0 ? 'Out of stock' : 'Order now')}</button>
         </article>`;
       }).join('') || '<p class="muted">No products available for this season.</p>';
     }
@@ -264,15 +265,14 @@
     document.getElementById('cancelOrder').addEventListener('click', () => document.getElementById('orderModal').classList.add('hidden'));
     document.getElementById('orderModal').addEventListener('click', (e) => { if (e.target.id === 'orderModal') e.currentTarget.classList.add('hidden'); });
 
-    document.getElementById('orderForm').addEventListener('submit', (e) => {
+    document.getElementById('orderForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const productId = document.getElementById('orderProductId').value;
       const qty = parseInt(document.getElementById('orderQty').value, 10);
       const payment = document.getElementById('orderPayment').value;
       const address = document.getElementById('orderAddress').value.trim();
       const notes = document.getElementById('orderNotes').value.trim();
-      const products = PetalApp.getProducts();
-      const product = products.find(p => p.id === productId);
+      const product = PetalApp.getProducts().find(p => p.id === productId);
       const msg = document.getElementById('orderMsg');
       if (!product || !product.available || qty < 1 || qty > product.stock) {
         msg.className = 'msg error'; msg.textContent = 'Invalid quantity, unavailable product, or insufficient stock.'; return;
@@ -280,28 +280,26 @@
       if (!address) {
         msg.className = 'msg error'; msg.textContent = 'Please enter a delivery address.'; return;
       }
-      product.stock -= qty;
-      PetalApp.saveProducts(products);
-      const orders = PetalApp.getOrders();
-      orders.unshift({
-        id: PetalApp.uid('ord'), userId: user.id, userEmail: user.email, userName: user.nickname,
-        productId: product.id, productName: product.name, season: product.season, qty, total: product.price * qty,
-        payment, address, notes, status: 'Pending',
-        deliveryPersonnel: '', deliveryFee: 0, deliveryStatus: 'Preparing',
-        date: new Date().toISOString()
-      });
-      PetalApp.saveOrders(orders);
-      msg.className = 'msg success'; msg.textContent = 'Order placed successfully!';
+      msg.className = 'msg';
+      msg.textContent = 'Placing your order...';
+      const res = await PetalApp.placeOrder(productId, qty, payment, address, notes);
+      if (!res.ok) {
+        msg.className = 'msg error';
+        msg.textContent = res.message || 'Could not place order.';
+        return;
+      }
+      msg.className = 'msg success';
+      msg.textContent = 'Order placed successfully!';
       renderProducts();
       setTimeout(() => document.getElementById('orderModal').classList.add('hidden'), 700);
     });
 
     function renderOrders() {
-      const mine = PetalApp.getOrders().filter(o => o.userId === user.id);
+      const mine = PetalApp.getMyOrders();
       const body = document.getElementById('ordersBody');
       body.innerHTML = mine.map(o => `<tr>
-        <td>${o.id}</td><td>${o.productName}</td><td>${o.qty}</td><td>${PetalApp.formatMoney(o.total)}</td>
-        <td>${o.payment}</td><td>${o.status}</td><td>${o.deliveryPersonnel ? o.deliveryPersonnel + ' — ' : ''}${o.deliveryStatus || 'Preparing'}</td><td>${new Date(o.date).toLocaleString()}</td>
+        <td>${PetalApp.escapeHtml(o.id)}</td><td>${PetalApp.escapeHtml(o.product_name)}</td><td>${o.qty}</td><td>${PetalApp.formatMoney(o.total)}</td>
+        <td>${PetalApp.escapeHtml(o.payment || '')}</td><td>${PetalApp.escapeHtml(o.status)}</td><td>${o.delivery_personnel ? PetalApp.escapeHtml(o.delivery_personnel) + ' — ' : ''}${PetalApp.escapeHtml(o.delivery_status || 'Preparing')}</td><td>${new Date(o.created_at).toLocaleString()}</td>
       </tr>`).join('') || '<tr><td colspan="8">No orders yet.</td></tr>';
     }
 
@@ -334,21 +332,21 @@
       }
     }
 
-    document.getElementById('avatarSave').addEventListener('click', () => {
+    document.getElementById('avatarSave').addEventListener('click', async () => {
       const msg = document.getElementById('avatarMsg');
       if (!pendingAvatar) { msg.className = 'msg error'; msg.textContent = 'Choose a picture first.'; return; }
-      if (!PetalApp.updateAvatar(user.id, pendingAvatar)) { msg.className = 'msg error'; msg.textContent = 'Could not save picture.'; return; }
-      user = PetalApp.getUsers().find(u => u.id === session.id);
+      const res = await PetalApp.updateAvatar(pendingAvatar);
+      if (!res.ok) { msg.className = 'msg error'; msg.textContent = res.message || 'Could not save picture.'; return; }
       pendingAvatar = null;
       msg.className = 'msg success'; msg.textContent = 'Profile picture saved.';
       renderAvatar();
       renderProfileAvatarPreview();
     });
 
-    document.getElementById('avatarRemove').addEventListener('click', () => {
+    document.getElementById('avatarRemove').addEventListener('click', async () => {
       const msg = document.getElementById('avatarMsg');
-      if (!PetalApp.updateAvatar(user.id, '')) { msg.className = 'msg error'; msg.textContent = 'Could not remove picture.'; return; }
-      user = PetalApp.getUsers().find(u => u.id === session.id);
+      const res = await PetalApp.removeAvatar();
+      if (!res.ok) { msg.className = 'msg error'; msg.textContent = res.message || 'Could not remove picture.'; return; }
       pendingAvatar = null;
       document.getElementById('avatarInput').value = '';
       msg.className = 'msg success'; msg.textContent = 'Profile picture removed.';
@@ -359,15 +357,16 @@
     function renderProfile() {
       renderProfileAvatarPreview();
       document.getElementById('profileInfo').innerHTML = `
-        <div><strong>Nickname:</strong> ${user.nickname}</div>
-        <div><strong>Email:</strong> ${user.email}</div>
-        <div><strong>Status:</strong> ${user.status}</div>
-        <div><strong>Anniversary:</strong> ${user.anniversary}</div>
-        <div><strong>Phone:</strong> ${user.phone}</div>
-        <div><strong>Location:</strong> ${user.location}</div>
+        <div><strong>Nickname:</strong> ${PetalApp.escapeHtml(user.nickname || '')}</div>
+        <div><strong>Email:</strong> ${PetalApp.escapeHtml(user.email || '')}</div>
+        <div><strong>Status:</strong> ${PetalApp.escapeHtml(user.status || '')}</div>
+        <div><strong>Anniversary:</strong> ${PetalApp.escapeHtml(user.anniversary || 'Not set')}</div>
+        <div><strong>Phone:</strong> ${PetalApp.escapeHtml(user.phone || '')}</div>
+        <div><strong>Location:</strong> ${PetalApp.escapeHtml(user.location || '')}</div>
       `;
     }
 
+    await PetalApp.refreshProducts();
     renderProducts();
     renderProfile();
 
@@ -407,7 +406,7 @@
       const now = new Date();
       const start = new Date(now.getFullYear(), 0, 0);
       const day = Math.floor((now - start) / 86400000);
-      const msg = DAILY_MESSAGES[day % DAILY_MESSAGES.length].replace('{name}', user.nickname);
+      const msg = DAILY_MESSAGES[day % DAILY_MESSAGES.length].replace('{name}', user.nickname || 'friend');
       document.getElementById('dailyMessage').textContent = msg;
     })();
 

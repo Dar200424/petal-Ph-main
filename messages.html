@@ -44,6 +44,7 @@
     </section>
   </main>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0"></script>
   <script src="js/config.js"></script>
   <script src="js/app.js"></script>
   <script>
@@ -51,8 +52,12 @@
     await PetalApp.init();
     const session = PetalApp.requireAuth('user');
     if (!session) throw new Error('Unauthorized');
-    const user = PetalApp.getUsers().find(u => u.id === session.id);
-    if (!user) PetalApp.logout();
+    let user = PetalApp.getMyProfile();
+    if (!user) {
+      await PetalApp.reload();
+      user = PetalApp.getMyProfile();
+    }
+    if (!user) { PetalApp.logout(); }
 
     document.getElementById('backBtn').addEventListener('click', () => { window.location.href = 'dashboard.html'; });
 
@@ -60,7 +65,7 @@
     const fb = document.getElementById('avatarFallback');
     if (user.avatar) { img.src = user.avatar; img.classList.remove('hidden'); fb.classList.add('hidden'); }
     else { fb.textContent = (user.nickname || 'U').charAt(0).toUpperCase(); }
-    document.getElementById('userName').textContent = user.nickname;
+    document.getElementById('userName').textContent = user.nickname || '';
 
     const box = document.getElementById('chatMessages');
     const form = document.getElementById('chatForm');
@@ -75,35 +80,37 @@
     }
 
     function renderChat() {
-      const mine = PetalApp.getMessages().filter(m => m.userId === user.id);
+      const mine = PetalApp.getMessages();
       if (!mine.length) {
         box.innerHTML = '<div class="chat-empty">No messages yet. Say hello to Petal-PH Admin — ask about flowers, orders, or delivery.</div>';
         return;
       }
       box.innerHTML = mine.map(m => `
-        <div class="msg-row ${m.from === 'user' ? 'mine' : 'them'}">
-          <div class="bubble">${m.text.replace(/</g, '&lt;')}<span class="time">${fmtTime(m.date)}</span></div>
+        <div class="msg-row ${m.sender === 'user' ? 'mine' : 'them'}">
+          <div class="bubble">${PetalApp.escapeHtml(m.body)}<span class="time">${fmtTime(m.created_at)}</span></div>
         </div>
       `).join('');
       box.scrollTop = box.scrollHeight;
     }
 
-    function poll() {
-      PetalApp.markRead(user.id, 'user');
+    async function poll() {
+      await PetalApp.markRead(user.id, 'user');
+      await PetalApp.loadOwn();
       renderChat();
     }
 
-    form.addEventListener('submit', (e) => {
+    form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const text = input.value;
       if (!text.trim()) return;
-      PetalApp.sendMessage(user.id, 'user', text);
+      const res = await PetalApp.sendMessage(user.id, 'user', text);
+      if (!res.ok) { alert(res.message || 'Could not send message.'); return; }
       input.value = '';
-      poll();
+      await poll();
     });
 
-    poll();
-    setInterval(poll, 5000);
+    await poll();
+    setInterval(() => { poll().catch(err => console.warn('Petal-PH: chat poll failed', err)); }, 5000);
     })();
   </script>
 </body>
