@@ -29,6 +29,7 @@
       <button id="logoutBtn">Log out</button>
     </aside>
     <main class="content">
+      <div id="adminError" class="msg error hidden" style="margin-bottom:1rem;"></div>
       <!-- 1. Dashboard Overview -->
       <section id="overview" class="page active">
         <h2 style="margin-top:0">Dashboard Overview</h2>
@@ -145,7 +146,7 @@
         <p class="muted">View delivery addresses, assign delivery personnel, track delivery status, and set delivery fees.</p>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>Order ID</th><th>Customer</th><th>Delivery address</th><th>Delivery personnel</th><th>Delivery fee</th><th>Delivery status</th><th>Action</th></tr></thead>
+            <thead><tr><th>Order ID</th><th>Customer</th><th>Delivery address</th><th>Delivery personnel</th><th>Delivery fee</th><th>Delivery date</th><th>Delivery status</th><th>Action</th></tr></thead>
             <tbody id="deliveryBody"></tbody>
           </table>
         </div>
@@ -293,7 +294,7 @@
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.0" integrity="sha384-NNePyabYRaJyedI6EQAY7SV5Z8/0sQkuQ5WVfhKm0H+j0KSugkI2ZMNzw/QtzAWz" crossorigin="anonymous"></script>
   <script src="js/config.js"></script>
   <script src="js/app.js"></script>
   <script>
@@ -304,22 +305,62 @@
     let couriers = [];
     let reportCustomers = [];
 
+    function showLoadError(message) {
+      console.error('Petal-PH:', message);
+      const el = document.getElementById('adminError');
+      if (!el) return;
+      el.textContent = message;
+      el.classList.remove('hidden');
+    }
+
+    function clearLoadError() {
+      const el = document.getElementById('adminError');
+      if (!el) return;
+      el.textContent = '';
+      el.classList.add('hidden');
+    }
+
+    function describeLoadError(err) {
+      if (!err) return 'Unknown error';
+      return err.message || err.details || err.hint || String(err);
+    }
+
     async function refreshAll() {
-      await PetalApp.loadAll();
-      await PetalApp.refreshCouriers();
-      couriers = PetalApp.getCouriers();
-      await refreshReports();
+      clearLoadError();
+      try {
+        await PetalApp.loadAll();
+      } catch (err) {
+        showLoadError('Failed to load orders/messages/products: ' + describeLoadError(err));
+      }
+      try {
+        await PetalApp.refreshCouriers();
+        couriers = PetalApp.getCouriers();
+      } catch (err) {
+        couriers = [];
+        showLoadError('Failed to load couriers: ' + describeLoadError(err));
+      }
+      try {
+        await refreshReports();
+      } catch (err) {
+        showLoadError('Failed to load customers: ' + describeLoadError(err));
+      }
+      try {
+        await refreshCustomerProfiles();
+      } catch (err) {
+        showLoadError('Failed to load conversation profiles: ' + describeLoadError(err));
+      }
     }
 
     const sidebar = document.getElementById('sidebar');
     document.getElementById('menuBtn').addEventListener('click', () => sidebar.classList.toggle('open'));
     document.querySelectorAll('.sidebar [data-page]').forEach(btn => {
-      btn.addEventListener('click', () => {
+      btn.addEventListener('click', async () => {
         document.querySelectorAll('.sidebar [data-page]').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
         document.getElementById(btn.dataset.page).classList.add('active');
         sidebar.classList.remove('open');
+        await refreshAll();
         renderAll();
       });
     });
@@ -615,6 +656,7 @@
             </select>
           </td>
           <td><input type="number" min="0" step="0.01" value="${o.delivery_fee || 0}" style="max-width:110px" id="fee_${PetalApp.escapeHtml(o.id)}"></td>
+          <td><input type="date" value="${o.delivery_date || ''}" style="max-width:130px" id="ddate_${PetalApp.escapeHtml(o.id)}"></td>
           <td>
             <select id="dstatus_${PetalApp.escapeHtml(o.id)}">
               ${PetalApp.DELIVERY_STATUS.map(s => `<option value="${s}" ${(o.delivery_status || 'Preparing') === s ? 'selected' : ''}>${s}</option>`).join('')}
@@ -622,11 +664,12 @@
           </td>
           <td><button class="btn btn-sm" onclick="saveDelivery(this.dataset.id)" data-id="${PetalApp.escapeHtml(o.id)}">Save</button></td>
         </tr>
-      `).join('') || '<tr><td colspan="7">No active orders to deliver.</td></tr>';
+      `).join('') || '<tr><td colspan="8">No active orders to deliver.</td></tr>';
     }
     window.saveDelivery = async (id) => {
       const res = await PetalApp.saveDelivery(id, {
         courierId: document.getElementById('courier_' + id).value,
+        deliveryDate: document.getElementById('ddate_' + id).value,
         fee: document.getElementById('fee_' + id).value,
         status: document.getElementById('dstatus_' + id).value
       });
@@ -681,32 +724,46 @@
 
     /* ---------- 6. Customer Management ---------- */
     async function refreshReports() {
-      const { data, error } = await PetalApp.sb.from('profiles').select('*').order('created_at', { ascending: false });
-      if (error) { console.warn('Petal-PH: customer load failed', error); return; }
-      reportCustomers = data || [];
+      reportCustomers = await PetalApp.getAllProfiles(true);
     }
 
     function renderCustomers() {
       const orders = PetalApp.getOrders();
-      const withOrders = reportCustomers.filter(u => orders.some(o => o.user_id === u.id)).length;
-      document.getElementById('custCount').textContent = reportCustomers.length;
+      const active = reportCustomers.filter(u => !u.deleted_at && !u.disabled);
+      const deleted = reportCustomers.filter(u => u.deleted_at || u.disabled);
+      const withOrders = active.filter(u => orders.some(o => o.user_id === u.id)).length;
+      document.getElementById('custCount').textContent = active.length;
       document.getElementById('custWithOrders').textContent = withOrders;
-      document.getElementById('customersBody').innerHTML = reportCustomers.map(u => {
+      document.getElementById('customersBody').innerHTML = active.map(u => {
         const mine = orders.filter(o => o.user_id === u.id);
         const spent = mine.reduce((s, o) => s + PetalApp.revenueOf(o), 0);
+        const av = PetalApp.safeAvatar(u.avatar);
         return `
         <tr>
-          <td>${u.avatar ? `<img class="avatar" src="${u.avatar}" alt="${PetalApp.escapeHtml(u.nickname || '')}">` : `<span class="avatar avatar-fallback">${(u.nickname || 'U').charAt(0).toUpperCase()}</span>`}</td>
+          <td>${av ? `<img class="avatar" src="${PetalApp.escapeHtml(av)}" alt="${PetalApp.escapeHtml(u.nickname || '')}">` : `<span class="avatar avatar-fallback">${(u.nickname || 'U').charAt(0).toUpperCase()}</span>`}</td>
           <td>${PetalApp.escapeHtml(u.nickname || '')}</td><td>${PetalApp.escapeHtml(u.email || '')}</td><td>${PetalApp.escapeHtml(u.status || '')}</td>
           <td>${PetalApp.escapeHtml(u.anniversary || '—')}</td><td>${PetalApp.escapeHtml(u.phone || '')}</td><td>${PetalApp.escapeHtml(u.location || '')}</td>
           <td>${mine.length}</td><td>${PetalApp.formatMoney(spent)}</td>
           <td>${u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}</td>
           <td class="row">
             <button class="btn btn-sm btn-outline" onclick="viewHistory(this.dataset.id)" data-id="${PetalApp.escapeHtml(u.id)}">History</button>
-            <button class="btn btn-sm btn-danger" onclick="removeCustomer(this.dataset.id)" data-id="${PetalApp.escapeHtml(u.id)}">Delete</button>
+            <button class="btn btn-sm btn-danger" onclick="removeCustomer(this.dataset.id)" data-id="${PetalApp.escapeHtml(u.id)}">Disable</button>
           </td>
         </tr>`;
-      }).join('') || '<tr><td colspan="11">No registered customers.</td></tr>';
+      }).join('') || '<tr><td colspan="11">No active customers.</td></tr>';
+      const deletedRows = deleted.map(u => `
+        <tr style="opacity:.6">
+          <td>${PetalApp.safeAvatar(u.avatar) ? `<img class="avatar" src="${PetalApp.escapeHtml(PetalApp.safeAvatar(u.avatar))}" alt="${PetalApp.escapeHtml(u.nickname || '')}">` : `<span class="avatar avatar-fallback">${(u.nickname || 'U').charAt(0).toUpperCase()}</span>`}</td>
+          <td>${PetalApp.escapeHtml(u.nickname || '')}</td><td>${PetalApp.escapeHtml(u.email || '')}</td><td>${u.deleted_at ? 'Disabled ' + new Date(u.deleted_at).toLocaleDateString() : 'Disabled'}</td>
+          <td colspan="6"></td>
+          <td class="row">
+            <button class="btn btn-sm btn-outline" onclick="restoreCustomer(this.dataset.id)" data-id="${PetalApp.escapeHtml(u.id)}">Restore</button>
+          </td>
+        </tr>`).join('');
+      if (deletedRows) {
+        document.getElementById('customersBody').innerHTML +=
+          `<tr><td colspan="11" style="padding:.4rem .6rem;color:var(--muted,#777)"><em>Disabled accounts (${deleted.length})</em></td></tr>` + deletedRows;
+      }
     }
 
     window.viewHistory = (userId) => {
@@ -725,9 +782,19 @@
     window.removeCustomer = async (userId) => {
       const user = reportCustomers.find(u => u.id === userId);
       if (!user) return;
-      if (!confirm(`Delete the account of "${user.nickname || ''}"? Their messages and orders will also be removed.`)) return;
-      const res = await PetalApp.deleteCustomer(userId);
-      if (!res.ok) { alert(res.message || 'Could not delete customer.'); return; }
+      if (!confirm(`Disable the account of "${user.nickname || ''}"? Their order history will be kept.`)) return;
+      const res = await PetalApp.softDeleteCustomer(userId);
+      if (!res.ok) { alert(res.message || 'Could not disable customer.'); return; }
+      await refreshAll();
+      renderAll();
+    };
+
+    window.restoreCustomer = async (userId) => {
+      const user = reportCustomers.find(u => u.id === userId);
+      if (!user) return;
+      if (!confirm(`Restore the account of "${user.nickname || ''}"?`)) return;
+      const res = await PetalApp.restoreCustomer(userId);
+      if (!res.ok) { alert(res.message || 'Could not restore customer.'); return; }
       await refreshAll();
       renderAll();
     };
@@ -737,9 +804,7 @@
     let customerProfiles = [];
 
     async function refreshCustomerProfiles() {
-      const { data, error } = await PetalApp.sb.from('profiles').select('*').order('created_at', { ascending: false });
-      if (error) { console.warn('Petal-PH: conversation profiles failed', error); return; }
-      customerProfiles = data || [];
+      customerProfiles = await PetalApp.getAllProfiles(true);
     }
 
     function profileOf(userId) {
@@ -763,8 +828,9 @@
       document.getElementById('convList').innerHTML = convs.map(c => {
         const p = profileOf(c.userId);
         const nickname = p ? (p.nickname || '') : 'Customer';
-        const avatar = p && p.avatar
-          ? `<img class="avatar" src="${p.avatar}" alt="${PetalApp.escapeHtml(nickname)}">`
+        const av = p ? PetalApp.safeAvatar(p.avatar) : '';
+        const avatar = av
+          ? `<img class="avatar" src="${PetalApp.escapeHtml(av)}" alt="${PetalApp.escapeHtml(nickname)}">`
           : `<span class="avatar avatar-fallback">${(nickname || 'U').charAt(0).toUpperCase()}</span>`;
         const last = c.last ? `${c.last.sender === 'admin' ? 'You: ' : ''}${PetalApp.escapeHtml(c.last.body || '')}` : 'No messages';
         return `
@@ -821,15 +887,18 @@
 
     function renderMessages() { renderConversations(); renderAdminChat(); }
 
+    async function refreshPolling() {
+      try {
+        await PetalApp.loadAll();
+      } catch (err) {
+        showLoadError('Poll failed: ' + describeLoadError(err));
+      }
+    }
+
     setInterval(async () => {
       try {
-        if (!document.getElementById('messages').classList.contains('active')) {
-          await refreshAll();
-          renderConversations();
-          return;
-        }
         if (currentUserId) await PetalApp.markRead(currentUserId, 'admin');
-        await refreshAll();
+        await refreshPolling();
         renderConversations();
         renderAdminChat();
       } catch (err) {
@@ -903,16 +972,27 @@
     }
 
     /* ---------- Render all ---------- */
+    const RENDERERS = [
+      ['Couriers', renderCouriers],
+      ['Overview', renderOverview],
+      ['Product Management', renderInventory],
+      ['Order Management', renderOrders],
+      ['Track Flower Stocks', renderStocks],
+      ['Delivery Management', renderDelivery],
+      ['Customer Management', renderCustomers],
+      ['Messages', renderMessages],
+      ['Reports', renderReports]
+    ];
+
     function renderAll() {
-      renderCouriers();
-      renderOverview();
-      renderInventory();
-      renderOrders();
-      renderStocks();
-      renderDelivery();
-      renderCustomers();
-      renderMessages();
-      renderReports();
+      RENDERERS.forEach(([label, fn]) => {
+        try {
+          fn();
+        } catch (err) {
+          console.error('Petal-PH: render failed in ' + label, err);
+          showLoadError('Render failed in ' + label + ': ' + describeLoadError(err));
+        }
+      });
     }
 
     const bestSellerChart = PetalApp.mountBestSellerChart(document.getElementById('bestSellerChart'));
