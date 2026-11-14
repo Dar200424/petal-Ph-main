@@ -1,2 +1,2 @@
-const SUPABASE_URL = 'PASTE_URL_HERE';
-const SUPABASE_ANON_KEY = 'PASTE_ANON_KEY_HERE';
+window.SUPABASE_URL = 'https://xyczblmkkedgipcvglwv.supabase.co';
+window.SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh5Y3pibG1ra2VkZ2lwY3ZnbHd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ2MzAzNzIsImV4cCI6MjExMDIwNjM3Mn0.ATDv9h6zboQ5RjyVfCazL-57CwYoG8SsocYSMhna-HM';
